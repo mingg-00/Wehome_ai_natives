@@ -11,7 +11,7 @@ import json
 import markdown as md
 
 from .config import OUTPUT_DIR
-from . import publisher, social, schedule as sched
+from . import publisher, social, schedule as sched, events as evt
 
 _BADGE = {
     "APPROVED": ("#0a7d28", "#e3f7e8"),
@@ -86,15 +86,16 @@ def _social_panel() -> str:
 
 
 def _calendar_panel() -> str:
-    """향후 7일 콘텐츠 캘린더 패널."""
+    """상단 위젯: 7일 캘린더 + 시즌 이벤트 + 언어 선택."""
     import datetime
     kst = datetime.timezone(datetime.timedelta(hours=9))
     today = datetime.datetime.now(kst).date()
     days = [today + datetime.timedelta(days=i) for i in range(7)]
-    day_labels = ["오늘", "내일"] + [(today + datetime.timedelta(days=i)).strftime("%-m/%-d") for i in range(2, 7)]
+    day_labels = ["오늘", "내일"] + [
+        (today + datetime.timedelta(days=i)).strftime("%-m/%-d") for i in range(2, 7)
+    ]
 
     q = social.queue()
-    # 날짜별 그룹
     by_date: dict[str, list[dict]] = {}
     unscheduled = []
     for it in q:
@@ -108,8 +109,7 @@ def _calendar_panel() -> str:
             t = datetime.datetime.fromisoformat(sa)
             if t.tzinfo is None:
                 t = t.replace(tzinfo=kst)
-            d = t.astimezone(kst).date().isoformat()
-            by_date.setdefault(d, []).append(it)
+            by_date.setdefault(t.astimezone(kst).date().isoformat(), []).append(it)
         except Exception:
             unscheduled.append(it)
 
@@ -119,64 +119,142 @@ def _calendar_panel() -> str:
     }
     _STATUS_BG = {"APPROVED": "#e3f7e8", "DRAFT": "#fdf3d0"}
 
+    # ── 7일 캘린더 컬럼 ────────────────────────────────────────────────
     cols = []
     for d, label in zip(days, day_labels):
         iso = d.isoformat()
-        items_today = by_date.get(iso, [])
         cells = []
-        for it in items_today:
+        for it in by_date.get(iso, []):
             color = _PLAT_COLOR.get(it["platform"], "#7c3aed")
             bg = _STATUS_BG.get(it["status"], "#ede9fe")
             t_str = ""
-            if it.get("scheduled_at"):
-                try:
-                    t = datetime.datetime.fromisoformat(it["scheduled_at"])
-                    if t.tzinfo is None:
-                        t = t.replace(tzinfo=kst)
-                    t_str = t.astimezone(kst).strftime("%H:%M")
-                except Exception:
-                    pass
+            try:
+                t = datetime.datetime.fromisoformat(it["scheduled_at"])
+                if t.tzinfo is None:
+                    t = t.replace(tzinfo=kst)
+                t_str = t.astimezone(kst).strftime("%H:%M")
+            except Exception:
+                pass
             cells.append(
                 f'<div style="background:{bg};border-left:3px solid {color};'
-                f'border-radius:5px;padding:4px 7px;margin-bottom:4px;font-size:12px">'
-                f'<b style="color:{color}">{it["platform"].upper()}</b>'
-                f'{" " + t_str if t_str else ""}'
-                f'<div style="color:#444;margin-top:2px">{it["text"][:40]}…</div>'
+                f'border-radius:5px;padding:4px 7px;margin-bottom:4px;font-size:11px">'
+                f'<b style="color:{color}">{it["platform"].upper()}</b> {t_str}'
+                f'<div style="color:#555;margin-top:1px;white-space:nowrap;overflow:hidden;'
+                f'text-overflow:ellipsis;max-width:120px">{it["text"][:38]}</div>'
                 f'</div>'
             )
-        empty = '<div style="color:#ccc;font-size:12px;text-align:center;padding:8px 0">—</div>'
+        empty = '<div style="color:#ddd;font-size:11px;text-align:center;padding:6px 0">—</div>'
+        is_today = (iso == today.isoformat())
         cols.append(
-            f'<td style="vertical-align:top;padding:8px;min-width:110px;border-right:1px solid #f0eef8">'
-            f'<div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#5b21b6">{label}</div>'
-            f'<div style="font-size:11px;color:#aaa;margin-bottom:6px">{iso}</div>'
+            f'<td style="vertical-align:top;padding:7px 8px;min-width:110px;max-width:140px;'
+            f'border-right:1px solid #f0eef8;{"background:#f8f5ff;" if is_today else ""}">'
+            f'<div style="font-weight:700;font-size:12px;margin-bottom:3px;'
+            f'color:{"#7c3aed" if is_today else "#5b21b6"}">{label}</div>'
+            f'<div style="font-size:10px;color:#bbb;margin-bottom:5px">{iso}</div>'
             f'{"".join(cells) or empty}</td>'
         )
 
-    # 골든타임 안내
-    golden_rows = "".join(
-        f"<tr><td style='padding:3px 8px;font-weight:600'>{p}</td>"
-        f"<td style='padding:3px 8px;color:#555'>{sched.golden_hours_label(p)}</td></tr>"
-        for p in ["instagram", "threads", "facebook", "x", "youtube"]
+    # ── 시즌 이벤트 (3개 언어) ─────────────────────────────────────────
+    upcoming = evt.upcoming_events(days_ahead=60)
+    lang_event_html: dict[str, str] = {}
+    for lang, name_key, topic_key, flag in [
+        ("ko", "name_ko", "topic_ko", "🇰🇷"),
+        ("en", "name_en", "topic_en", "🇺🇸"),
+        ("ja", "name_en", "topic_ja", "🇯🇵"),
+    ]:
+        if not upcoming:
+            lang_event_html[lang] = '<div style="color:#bbb;font-size:12px">예정 이벤트 없음</div>'
+            continue
+        items_html = []
+        for ev in upcoming[:6]:
+            d_str = f"D-{ev['days_until']}" if ev['days_until'] > 0 else "D-Day"
+            name = ev.get(name_key, ev["name_ko"])
+            topic = ev.get(topic_key, ev["topic_ko"])
+            badge_color = "#7c3aed" if ev['days_until'] <= 14 else "#aaa"
+            items_html.append(
+                f'<div style="display:flex;align-items:flex-start;gap:8px;'
+                f'padding:7px 0;border-bottom:1px solid #f3f0fa">'
+                f'<span style="background:#ede9fe;color:{badge_color};font-size:11px;'
+                f'font-weight:700;padding:2px 7px;border-radius:99px;white-space:nowrap">{d_str}</span>'
+                f'<div><div style="font-size:12px;font-weight:600;color:#333">{name}</div>'
+                f'<div style="font-size:11px;color:#888;margin-top:1px">{topic[:55]}…</div>'
+                f'<div style="font-size:10px;color:#bbb;margin-top:1px">{ev["start_date"]}</div>'
+                f'</div></div>'
+            )
+        lang_event_html[lang] = "".join(items_html)
+
+    evt_panels = "".join(
+        f'<div class="lang-content" data-lang="{lang}" '
+        f'style="display:{"block" if lang=="ko" else "none"}">'
+        f'{html}</div>'
+        for lang, html in lang_event_html.items()
     )
 
-    return f"""<div class="card">
-      <div class="title">📅 콘텐츠 캘린더 (향후 7일)</div>
-      <div class="meta">
-        예약 대기 {sum(len(v) for v in by_date.values())}건 · 미예약 {len(unscheduled)}건
-        &nbsp;|&nbsp; 📅 Discord 반응 = 골든타임 자동 예약 / 👍 = 즉시 게시
+    # ── 골든타임 행 ────────────────────────────────────────────────────
+    golden_rows = "".join(
+        f"<tr><td style='padding:2px 8px;font-size:12px;font-weight:600'>{p}</td>"
+        f"<td style='padding:2px 8px;font-size:12px;color:#555'>{sched.golden_hours_label(p)}</td></tr>"
+        for p in ["instagram", "threads", "facebook", "youtube"]
+    )
+
+    scheduled_cnt = sum(len(v) for v in by_date.values())
+
+    return f"""
+<div style="background:#fff;border:1px solid #e8e6ee;border-radius:14px;
+  padding:18px 22px;margin-bottom:20px;box-shadow:0 2px 8px rgba(124,58,237,.06)">
+
+  <!-- 헤더 + 언어 탭 -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div>
+      <div style="font-size:16px;font-weight:700">📅 콘텐츠 캘린더</div>
+      <div style="font-size:12px;color:#888;margin-top:2px">
+        예약 대기 {scheduled_cnt}건 · 미예약 {len(unscheduled)}건
       </div>
-      <div style="overflow-x:auto;margin-top:12px">
-        <table style="border-collapse:collapse;width:100%"><tr>{"".join(cols)}</tr></table>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="lang-btn active" id="tab-ko" onclick="setLang('ko')"
+        style="background:#7c3aed;color:#fff;border:none;border-radius:8px;
+        padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer">🇰🇷 한국어</button>
+      <button class="lang-btn" id="tab-en" onclick="setLang('en')"
+        style="background:#f3f0f9;color:#5b21b6;border:none;border-radius:8px;
+        padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer">🇺🇸 English</button>
+      <button class="lang-btn" id="tab-ja" onclick="setLang('ja')"
+        style="background:#f3f0f9;color:#5b21b6;border:none;border-radius:8px;
+        padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer">🇯🇵 日本語</button>
+    </div>
+  </div>
+
+  <!-- 2컬럼: 7일 캘린더 + 시즌 이벤트 -->
+  <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+
+    <!-- 7일 그리드 -->
+    <div style="flex:2;min-width:0;overflow-x:auto">
+      <table style="border-collapse:collapse;width:100%;min-width:560px">
+        <tr>{"".join(cols)}</tr>
+      </table>
+      <div style="margin-top:10px">
+        <details>
+          <summary style="cursor:pointer;color:#7c3aed;font-weight:600;font-size:13px">
+            골든타임 기준
+          </summary>
+          <table style="margin-top:6px">{golden_rows}</table>
+        </details>
       </div>
-      <details style="margin-top:12px">
-        <summary>골든타임 기준</summary>
-        <table style="margin-top:8px;font-size:13px">{golden_rows}</table>
-        <p style="font-size:12px;color:#999;margin:4px 0">
-          ※ 위홈 계정 인사이트 데이터 축적 후 engine/schedule.py의 GOLDEN_HOURS를 교체하면
-          실제 성과 기반 스케줄링으로 업그레이드됩니다.
-        </p>
-      </details>
-    </div>"""
+    </div>
+
+    <!-- 시즌 이벤트 -->
+    <div style="flex:1;min-width:200px;max-width:280px;border-left:1px solid #f0eef8;padding-left:16px">
+      <div style="font-size:13px;font-weight:700;color:#5b21b6;margin-bottom:8px">
+        🗓️ 다가오는 이벤트
+      </div>
+      {evt_panels}
+      <div style="font-size:11px;color:#bbb;margin-top:8px">
+        D-14 도래 시 자동 캠페인 생성
+      </div>
+    </div>
+
+  </div>
+</div>"""
 
 
 def build() -> str:
@@ -253,11 +331,10 @@ def build() -> str:
 </style></head>
 <body>
 <div class="sns-nav">
-  <a class="sns-ico" style="background:#111" href="https://x.com" target="_blank" title="X(Twitter)로 이동">𝕏</a>
   <a class="sns-ico" style="background:#dc2743;font-size:12px" href="https://www.instagram.com" target="_blank" title="Instagram으로 이동">IG</a>
   <a class="sns-ico" style="background:#111" href="https://www.threads.net" target="_blank" title="Threads로 이동">@</a>
-  <a class="sns-ico" style="background:#e60023" href="https://www.pinterest.com" target="_blank" title="Pinterest로 이동">P</a>
   <a class="sns-ico" style="background:#1877f2" href="https://www.facebook.com" target="_blank" title="Facebook으로 이동">f</a>
+  <a class="sns-ico" style="background:#ff0000;font-size:18px" href="https://www.youtube.com" target="_blank" title="YouTube로 이동">▶</a>
 </div>
 <div class="wrap">
   <h1>🤖 Wehome AI Marketing Engine</h1>
@@ -270,8 +347,8 @@ def build() -> str:
     <div class="stat"><div class="num" style="color:#8a6d00">{warns}</div><div class="lbl">검수 WARN</div></div>
     <div class="stat"><div class="num" style="color:#b00020">{fails}</div><div class="lbl">검수 FAIL</div></div>
   </div>
-  {_social_panel()}
   {_calendar_panel()}
+  {_social_panel()}
   <h2 style="font-size:18px;margin:24px 0 12px">📝 생성된 콘텐츠</h2>
   {''.join(cards)}
 </div>
@@ -289,6 +366,16 @@ async function gen(platform, btn){{
     alert('로컬 서버에서 열어야 동작합니다:\\n  python main.py serve');
     btn.disabled = false; btn.textContent = old;
   }}
+}}
+function setLang(lang) {{
+  document.querySelectorAll('.lang-content').forEach(el => {{
+    el.style.display = el.dataset.lang === lang ? 'block' : 'none';
+  }});
+  document.querySelectorAll('.lang-btn').forEach(btn => {{
+    const active = btn.id === 'tab-' + lang;
+    btn.style.background = active ? '#7c3aed' : '#f3f0f9';
+    btn.style.color = active ? '#fff' : '#5b21b6';
+  }});
 }}
 async function pub(id, btn){{
   const old = btn.textContent; btn.disabled = true; btn.textContent = '게시 중…';
