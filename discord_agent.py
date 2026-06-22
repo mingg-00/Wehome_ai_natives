@@ -55,8 +55,18 @@ intents.message_content = True
 
 client = discord.Client(intents=intents)
 
-# Discord 메시지ID -> SNS 큐 ID 목록
-pending_posts = {}
+# Discord 메시지ID -> (SNS 큐 ID 목록, 생성 시각)
+# TTL 1시간 — 👍 없이 방치된 항목 자동 제거
+import time as _time
+_PENDING_TTL = 3600
+pending_posts: dict[int, tuple[list, float]] = {}
+
+
+def _cleanup_pending():
+    now = _time.time()
+    expired = [mid for mid, (_, ts) in pending_posts.items() if now - ts > _PENDING_TTL]
+    for mid in expired:
+        del pending_posts[mid]
 
 
 @client.event
@@ -107,7 +117,7 @@ async def on_message(message):
             (".mp4", ".mov", ".avi", ".mkv")
         ):
             os.makedirs("uploads", exist_ok=True)
-            video_path = os.path.join("uploads", attachment.filename)
+            video_path = os.path.join("uploads", os.path.basename(attachment.filename))
             await attachment.save(video_path)
             print("🎥 영상 저장 완료")
             print("📁", video_path)
@@ -178,10 +188,8 @@ async def on_message(message):
     draft_msg = await message.reply(preview)
 
     # pending_posts를 반응 추가 전에 등록 (타이밍 레이스 방지)
-    pending_posts[draft_msg.id] = {
-        "ids": created_ids,
-        "video_path": video_path
-    }
+    _cleanup_pending()
+    pending_posts[draft_msg.id] = ({"ids": created_ids, "video_path": video_path}, _time.time())
 
     await draft_msg.add_reaction("👍")
 
@@ -201,7 +209,7 @@ async def on_reaction_add(reaction, user):
     if message_id not in pending_posts:
         return
 
-    data = pending_posts[message_id]
+    data, _ = pending_posts.pop(message_id)
 
     ids = data["ids"]
     video_path = data["video_path"]

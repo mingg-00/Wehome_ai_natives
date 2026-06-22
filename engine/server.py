@@ -23,15 +23,28 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _is_local_origin(self) -> bool:
+        origin = self.headers.get("Origin", "")
+        referer = self.headers.get("Referer", "")
+        allowed = ("http://127.0.0.1:8765", "http://localhost:8765")
+        src = origin or referer
+        return not src or any(src.startswith(a) for a in allowed)
+
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         if u.path in ("/", "/index.html"):
             self._send(200, dashboard.build())  # 매 요청 최신 상태로 렌더
         elif u.path == "/api/social/publish":
+            if not self._is_local_origin():
+                self._send(403, json.dumps({"error": "forbidden"}), "application/json")
+                return
             pid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
             res = social.publish_one(pid)
             self._send(200, json.dumps(res, ensure_ascii=False), "application/json; charset=utf-8")
         elif u.path == "/api/social/generate":
+            if not self._is_local_origin():
+                self._send(403, json.dumps({"error": "forbidden"}), "application/json")
+                return
             qs = urllib.parse.parse_qs(u.query)
             topic = qs.get("topic", [""])[0].strip()
             platform = qs.get("platform", [""])[0].strip()
