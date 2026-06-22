@@ -1,0 +1,26 @@
+# 환경변수·시크릿
+.env
+.env.*
+!.env.example
+
+# 파이썬
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# 생성 결과물 (로컬 전용)
+output/
+uploads/
+
+# macOS
+.DS_Store
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+*.swo
