@@ -351,15 +351,22 @@ async def on_message(message):
         # "x",  # 쓰기 크레딧 리셋 후 주석 해제 (developer.x.com → Dashboard → Usage 확인)
     ]
 
-    posts = social.generate_posts(
-        topic=topic,
-        platforms=platforms
-    )
+    # 영상 첨부 시 캡션을 그대로 사용 (GPT 재생성 불필요)
+    if video_path:
+        posts = {
+            p: {"text": topic, "caption": topic, "link": "https://www.wehome.me",
+                "pin_title": topic[:90], "pin_description": topic, "image_text": ""}
+            for p in platforms
+        }
+        preview_label = "📝 영상 포스팅 초안 (캡션 그대로 사용)\n\n"
+    else:
+        posts = social.generate_posts(topic=topic, platforms=platforms)
+        preview_label = "📝 SNS 초안 생성 완료\n\n"
 
     created_ids = []
 
-    preview = "📝 SNS 초안 생성 완료\n\n"
-    preview += f"주제: {topic}\n\n"
+    preview = preview_label
+    preview += f"주제: {topic[:100]}\n\n"
 
     for platform in platforms:
 
