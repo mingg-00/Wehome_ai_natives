@@ -63,6 +63,15 @@ _PENDING_TTL = 3600
 pending_posts: dict[int, tuple[dict, float]] = {}
 _campaign_triggered_date: str = ""  # 날짜별 중복 트리거 방지
 
+# 모든 플랫폼 골든타임(KST 정시) → UTC 변환하여 루프 실행 시각 목록 생성
+_KST = _dt.timezone(_dt.timedelta(hours=9))
+_UTC = _dt.timezone.utc
+_golden_times = sorted({
+    _dt.time(hour=(h - 9) % 24, minute=0, tzinfo=_UTC)
+    for hours in sched.GOLDEN_HOURS.values()
+    for h in hours
+})  # 결과: UTC 0,2,3,4,6,9,10,11,12시 = KST 9,11,12,13,15,18,19,20,21시
+
 
 def _cleanup_pending():
     now = _time.time()
@@ -72,9 +81,9 @@ def _cleanup_pending():
 
 
 # ---------------------------------------------------------------------------
-# 백그라운드: 예약 시각 도래한 APPROVED 항목 자동 게시 (5분마다)
+# 백그라운드: 골든타임 정시에만 실행 (KST 9·11·12·13·15·18·19·20·21시)
 # ---------------------------------------------------------------------------
-@tasks.loop(minutes=5)
+@tasks.loop(time=_golden_times)
 async def _auto_publish_loop():
     results = social.publish(due_only=True)
     if results:
