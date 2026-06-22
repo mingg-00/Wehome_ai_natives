@@ -315,15 +315,18 @@ async def on_reaction_add(reaction, user):
     if emoji == "📅":
         data, _ = pending_posts.pop(message_id)
         ids = data["ids"]
-        lines = ["📅 **골든타임 예약 완료**\n"]
+        lines = ["📅 **골든타임 예약 결과**\n"]
+        q_map = {it["id"]: it for it in social.queue()}
         for item_id in ids:
-            social.approve(item_id)
-            q = {it["id"]: it for it in social.queue()}
-            it = q.get(item_id, {})
-            plat = it.get("platform", "")
+            result = social.approve(item_id)
+            it = q_map.get(item_id, {})
+            plat = it.get("platform", "").upper()
+            if not result.get("ok"):
+                lines.append(f"❌ {plat} 예약 불가 — {result.get('msg', '검수 FAIL')}")
+                continue
             at = it.get("scheduled_at", "?")
-            golden_label = sched.golden_hours_label(plat)
-            lines.append(f"✅ {plat.upper()} → {at[:16]} (골든타임 {golden_label})")
+            golden_label = sched.golden_hours_label(it.get("platform", ""))
+            lines.append(f"✅ {plat} → {at[:16]} (골든타임 {golden_label})")
         lines.append("\n⏰ 예약 시간이 되면 자동 게시됩니다.")
         await reaction.message.reply("\n".join(lines))
         return

@@ -53,4 +53,4 @@ def is_due(scheduled_at: str) -> bool:
             t = t.replace(tzinfo=KST)
         return t <= now
     except Exception:
-        return True
+        return False

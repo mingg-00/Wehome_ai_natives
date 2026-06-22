@@ -25,6 +25,7 @@ import urllib.request
 from . import brand, utm
 from .config import OUTPUT_DIR, settings
 from .llm import chat_json
+from . import schedule as _sched
 
 PLATFORMS = ["instagram", "threads", "x", "pinterest", "facebook"]
 QUEUE_FILE = OUTPUT_DIR / "social_queue.json"
@@ -131,7 +132,7 @@ def enqueue(platform: str, topic: str, post: dict, governance: str,
     items = _load()
     post = utm.inject(platform, post, topic)   # UTM 링크 자동 주입
     item = {
-        "id": f"sp-{datetime.datetime.now():%Y%m%d%H%M%S}-{platform}",
+        "id": f"sp-{datetime.datetime.now():%Y%m%d%H%M%S%f}-{platform}",
         "platform": platform, "topic": topic, "post": post,
         "text": render(platform, post),
         "governance": governance, "status": "DRAFT",
@@ -186,12 +187,11 @@ def publish_one(item_id: str) -> dict:
 def publish(due_only: bool = False) -> list[dict]:
     """APPROVED 항목을 게시(실제 or dry-run). due_only면 예약시간 도래분만."""
     items = _load()
-    now = datetime.datetime.now().isoformat(timespec="seconds")
     results = []
     for it in items:
         if it["status"] != "APPROVED":
             continue
-        if due_only and it.get("scheduled_at") and it["scheduled_at"] > now:
+        if due_only and it.get("scheduled_at") and not _sched.is_due(it["scheduled_at"]):
             continue
         video_path = it.get("video_path")
         res = post_to(it["platform"], it["post"], video_path=video_path)
