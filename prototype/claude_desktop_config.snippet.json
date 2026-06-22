@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "wehome": {
+      "command": "/Applications/anaconda3/bin/python3",
+      "args": [
+        "/Users/gimminji/현장실습/wehome-marketing-engine/mcp_server.py"
+      ]
+    }
+  }
+}

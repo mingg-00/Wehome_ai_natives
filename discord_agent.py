@@ -1,0 +1,245 @@
+import json
+import os
+import re
+
+import discord
+from pathlib import Path
+from dotenv import load_dotenv
+
+# .env를 engine 모듈 import 전에 로드해야 Settings 클래스가 올바른 값을 읽는다
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+
+from engine import social
+from engine import governance
+
+
+def _friendly_error(error: str) -> str:
+    """Raw 에러 문자열 → 사람이 읽기 쉬운 한 줄 메시지."""
+    http_match = re.search(r"HTTP (\d+)", error)
+    http_code = int(http_match.group(1)) if http_match else None
+
+    meta_code, meta_msg = None, ""
+    json_match = re.search(r"\{.*\}", error, re.DOTALL)
+    if json_match:
+        try:
+            err = json.loads(json_match.group()).get("error", {})
+            meta_code = err.get("code")
+            meta_msg = err.get("message", "")
+        except Exception:
+            pass
+
+    if http_code == 402 or "CreditsDepleted" in error:
+        return "크레딧 소진 (무료 플랜 한도 초과)"
+    if meta_code == 190 or "could not be decrypted" in error:
+        return "토큰 만료 → 재발급 필요"
+    if "API access blocked" in error and meta_code == 200:
+        return "Meta 개발자 계정 제한 중 (계정 인증 완료 후 재시도)"
+    if "Cannot call API for app" in error:
+        return "페이지 토큰 권한 없음 → FB_PAGE_TOKEN 재발급 필요"
+    if meta_msg:
+        return f"Meta 오류: {meta_msg}"
+    if http_code:
+        return f"HTTP {http_code} 오류"
+    return error[:120]
+
+# =========================
+# 설정
+# =========================
+
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+
+# =========================
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+client = discord.Client(intents=intents)
+
+# Discord 메시지ID -> SNS 큐 ID 목록
+pending_posts = {}
+
+
+@client.event
+async def on_ready():
+    print("=" * 60)
+    print(f"🤖 로그인 완료: {client.user}")
+    print("📡 [POST_REQUEST] 감시 시작")
+    print("=" * 60)
+
+
+@client.event
+async def on_message(message):
+
+    print("=" * 50)
+    print("첨부파일 개수:", len(message.attachments))
+    for a in message.attachments:
+        print("첨부파일:", a.filename)
+    print("메시지 감지!")
+    print("채널:", message.channel)
+    print("작성자:", message.author)
+    print("내용:", message.content)
+
+    # 자기 자신의 메시지만 무시 (다른 봇/앱의 [POST_REQUEST]는 처리)
+    if message.author.id == client.user.id:
+        return
+
+    if not message.content.startswith("[POST_REQUEST]"):
+        return
+
+    topic = (
+        message.content
+        .replace("[POST_REQUEST]", "")
+        .strip()
+    )
+
+    if not topic:
+        await message.reply(
+            "⚠️ 형식:\n\n[POST_REQUEST]\n주제 입력"
+        )
+        return
+
+    # 첨부파일(mp4 등 영상) 처리
+    video_path = None
+
+    if message.attachments:
+        attachment = message.attachments[0]
+        if attachment.filename.lower().endswith(
+            (".mp4", ".mov", ".avi", ".mkv")
+        ):
+            os.makedirs("uploads", exist_ok=True)
+            video_path = os.path.join("uploads", attachment.filename)
+            await attachment.save(video_path)
+            print("🎥 영상 저장 완료")
+            print("📁", video_path)
+            print("존재 여부:", os.path.exists(video_path))
+
+    await message.add_reaction("👀")
+
+    print(f"\n🔔 포스팅 요청 감지")
+    print(f"주제: {topic}")
+
+    platforms = [
+        "threads",
+        "facebook",
+        "instagram",
+        "youtube",
+        # "x",  # X API 무료 플랜 사용 중 (크레딧 소진 시 402 오류) → 유료 전환 시 주석 해제
+    ]
+
+    posts = social.generate_posts(
+        topic=topic,
+        platforms=platforms
+    )
+
+    created_ids = []
+
+    preview = "📝 SNS 초안 생성 완료\n\n"
+    preview += f"주제: {topic}\n\n"
+
+    for platform in platforms:
+
+        post = posts.get(platform)
+
+        if not post:
+            continue
+
+        text = social.render(platform, post)
+
+        report = governance.review(
+            {
+                "_kind": "social",
+                "topic": topic,
+                "platform": platform
+            },
+            text
+        )
+
+        item = social.enqueue(
+            platform=platform,
+            topic=topic,
+            post=post,
+            governance=report["status"],
+            scheduled_at=None,
+            video_path=video_path,
+        )
+
+        created_ids.append(item["id"])
+
+        preview += (
+            f"[{platform.upper()}]\n"
+            f"{text[:500]}\n\n"
+        )
+
+    preview += (
+        "👍 이 메시지에 반응을 누르면 실제 게시됩니다.\n"
+        "❌ 검수 FAIL 상태는 자동 차단됩니다."
+    )
+
+    draft_msg = await message.reply(preview)
+
+    # pending_posts를 반응 추가 전에 등록 (타이밍 레이스 방지)
+    pending_posts[draft_msg.id] = {
+        "ids": created_ids,
+        "video_path": video_path
+    }
+
+    await draft_msg.add_reaction("👍")
+
+
+@client.event
+async def on_reaction_add(reaction, user):
+
+    # 봇 자신의 반응 무시 (user.bot + id 이중 확인)
+    if user.bot or user.id == client.user.id:
+        return
+
+    if str(reaction.emoji) != "👍":
+        return
+
+    message_id = reaction.message.id
+
+    if message_id not in pending_posts:
+        return
+
+    data = pending_posts[message_id]
+
+    ids = data["ids"]
+    video_path = data["video_path"]
+
+    print("👍 승인됨")
+    print("영상:", video_path)
+
+    result_text = "🚀 SNS 게시 시작\n\n"
+
+    for item_id in ids:
+
+        social.approve(item_id)
+
+        result = social.publish_one(item_id)
+
+        if result.get("status") == "posted":
+            result_text += f"✅ {item_id}\n"
+
+        elif result.get("status") == "dry-run":
+            result_text += (
+                f"👀 {item_id}\n"
+                f"   (토큰 없음 → dry-run)\n"
+            )
+
+        else:
+            friendly = _friendly_error(result.get("error", "알 수 없는 오류"))
+            result_text += (
+                f"❌ {item_id}\n"
+                f"   {friendly}\n"
+            )
+
+    await reaction.message.reply(result_text)
+
+    del pending_posts[message_id]
+
+
+if not DISCORD_BOT_TOKEN:
+    print("❌ DISCORD_BOT_TOKEN이 .env에 없습니다.")
+    print("   .env에 DISCORD_BOT_TOKEN=your_token 을 추가하세요.")
+else:
+    client.run(DISCORD_BOT_TOKEN)
