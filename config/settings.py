@@ -1,7 +1,11 @@
 from __future__ import annotations  # Python 3.10+에서 타입 힌트에 대한 미래 기능을 활성화
 
 import os                           # 환경변수와 파일 경로 처리를 위해 표준 라이브러리의 os 모듈을 사용
+import json                         # JSON 산출물을 안전하게 저장하기 위해 사용
+import re                           # 산출물 파일명에서 실행 번호를 찾기 위해 정규 표현식을 사용
+import tempfile                     # 원자적 파일 저장을 위한 임시 파일을 만들기 위해 사용
 from dataclasses import dataclass   # 데이터 클래스 데코레이터를 가져와 설정 클래스를 정의
+from typing import Any              # JSON 저장 헬퍼의 데이터 타입을 표현하기 위해 사용
 
 from dotenv import load_dotenv      # .env 파일에서 환경변수를 로드하기 위해 python-dotenv 라이브러리의 load_dotenv 함수를 사용
 
@@ -56,6 +60,13 @@ class AppSettings:
     discord_webhook_url: str | None = os.getenv("DISCORD_WEBHOOK_URL")
     discord_delivery_enabled: bool = DISCORD_DELIVERY_ENABLED
     director_provider: str = os.getenv("DIRECTOR_PROVIDER", "gemini")
+    director_fallback_enabled: bool = _env_bool("DIRECTOR_FALLBACK_ENABLED", True)
+    director_fallback_provider: str = os.getenv("DIRECTOR_FALLBACK_PROVIDER", "local_template")
+    director_daily_api_limit: int = _env_int("DIRECTOR_DAILY_API_LIMIT", 0)
+    director_api_usage_path: str = os.getenv(
+        "DIRECTOR_API_USAGE_PATH",
+        os.path.join("output", "director_api_usage.json"),
+    )
     anthropic_api_key: str | None = os.getenv("ANTHROPIC_API_KEY")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
     anthropic_api_url: str = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")
@@ -87,7 +98,11 @@ class AppSettings:
     assets_dir: str = os.getenv("ASSETS_DIR", "assets")
     audio_dir: str = os.getenv("AUDIO_DIR", os.path.join("output", "temp_audio"))
     video_dir: str = os.getenv("VIDEO_DIR", os.path.join("output", "final_video"))
-    bgm_dir: str = os.getenv("BGM_DIR", "bgm")
+    local_video_width: int = _env_int("LOCAL_VIDEO_WIDTH", 1080)
+    local_video_height: int = _env_int("LOCAL_VIDEO_HEIGHT", 1920)
+    local_video_motion_enabled: bool = _env_bool("LOCAL_VIDEO_MOTION_ENABLED", True)
+    image_download_max_bytes: int = _env_int("IMAGE_DOWNLOAD_MAX_BYTES", 15 * 1024 * 1024)
+    bgm_dir: str = os.getenv("BGM_DIR", os.path.join("assets", "bgm"))
     bgm_volume: float = _env_float("BGM_VOLUME", 0.18)
     storyboard_cache_path: str = os.getenv("STORYBOARD_CACHE_PATH", os.path.join("output", "storyboard_cache.json"))
     storyboard_cache_enabled: bool = _env_bool("STORYBOARD_CACHE_ENABLED", True)
@@ -102,6 +117,9 @@ class AppSettings:
     company_max_pages: int = _env_int("COMPANY_MAX_PAGES", 3)
     company_crawl_continue_on_error: bool = _env_bool("COMPANY_CRAWL_CONTINUE_ON_ERROR", True)
     company_body_max_chars: int = _env_int("COMPANY_BODY_MAX_CHARS", 1200)
+    company_summary_max_points: int = _env_int("COMPANY_SUMMARY_MAX_POINTS", 10)
+    company_image_max_urls: int = _env_int("COMPANY_IMAGE_MAX_URLS", 12)
+    video_user_requirements: str = os.getenv("VIDEO_USER_REQUIREMENTS", "")
 
     @property
     def gemini_api_url(self) -> str:
@@ -129,3 +147,56 @@ def ensure_directories(*paths: str) -> None:
     for path in paths:
         if path:
             os.makedirs(path, exist_ok=True)
+
+
+def write_json_atomic(path: str, data: Any, *, ensure_ascii: bool = False, indent: int | None = 2) -> None:
+    target_dir = os.path.dirname(path) or "."
+    ensure_directories(target_dir)
+    temp_path = ""
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=target_dir,
+            delete=False,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+        ) as file_handle:
+            temp_path = file_handle.name
+            json.dump(data, file_handle, ensure_ascii=ensure_ascii, indent=indent)
+            file_handle.write("\n")
+            file_handle.flush()
+            os.fsync(file_handle.fileno())
+
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def get_next_artifact_number(*search_paths: str) -> int:
+    # 기존 산출물 이름에서 가장 큰 3자리 번호를 찾아 다음 실행 번호를 만든다.
+    number_pattern = re.compile(r"(?:^|_)(\d{3})(?:_|\.|$)")
+    existing_numbers: list[int] = []
+
+    for search_path in search_paths:
+        if not search_path:
+            continue
+        if os.path.isfile(search_path):
+            names = [os.path.basename(search_path)]
+        elif os.path.isdir(search_path):
+            names = []
+            for _, _, file_names in os.walk(search_path):
+                names.extend(file_names)
+        else:
+            continue
+
+        for name in names:
+            for match in number_pattern.finditer(name):
+                existing_numbers.append(int(match.group(1)))
+
+    return (max(existing_numbers) + 1) if existing_numbers else 1

@@ -29,6 +29,7 @@ class BgmSelector:
     def select_bgm_path(self, storyboard: dict[str, Any]) -> str | None:
         candidates = self.rank_candidates(storyboard)
         if not candidates:
+            print(f"[BgmSelector] 로컬 BGM 후보가 없습니다. 폴더를 확인하세요: {self.bgm_dir}")
             return None
 
         ranked_candidates = sorted(
@@ -38,7 +39,9 @@ class BgmSelector:
                 Path(candidate.path).name.lower(),
             ),
         )
-        return ranked_candidates[0].path
+        selected_candidate = ranked_candidates[0]
+        print(f"[BgmSelector] 로컬 BGM 선택 완료: {selected_candidate.path} (점수={selected_candidate.score})")
+        return selected_candidate.path
 
     # BGM 후보를 수집하는 내부 메서드로, 지정된 디렉토리를 탐색하여 지원되는 오디오 파일을 후보 목록으로 반환
     def _collect_candidates(self) -> list[BgmCandidate]:

@@ -24,6 +24,7 @@ env/
 
 # Generated media, crawl results, and cache files
 output/
+assets/downloaded/
 *.mp3
 *.mp4
 *.wav

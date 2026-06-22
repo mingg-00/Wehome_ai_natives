@@ -1,6 +1,5 @@
 from __future__ import annotations                # Python 3.10+에서 타입 힌트에 대한 미래 기능을 활성화
 
-import json                                       # 회사 프로필을 JSON 파일로 저장하기 위해 사용
 import os                                         # 저장 경로의 디렉터리를 만들기 위해 사용
 import re                                         # 파일명 번호 매기기를 위해 사용
 import time                                       # 크롤링 경과 시간을 측정하기 위해 사용
@@ -10,7 +9,7 @@ from typing import Any                            # URL에서 텍스트와 이�
 from urllib.parse import urljoin                  # URL을 절대 경로로 변환하기 위한 유틸리티
 from urllib.request import Request, urlopen       # 웹 페이지 요청과 응답 처리를 위한 표준 라이브러리
 
-from config.settings import settings              # 설정에서 회사 웹사이트 URL과 크롤링 관련 타임아웃, 페이지 수 제한 등을 읽어옴
+from config.settings import settings, write_json_atomic  # 설정에서 회사 웹사이트 URL과 크롤링 관련 타임아웃, 페이지 수 제한 등을 읽어옴
 
 
 # 회사 웹사이트에서 추출한 페이지 정보를 담는 간단한 데이터 클래스
@@ -61,7 +60,7 @@ class _CompanyPageParser(HTMLParser):
 
     # HTML 태그를 처리하고, 필요한 정보를 추출하는 로직을 구현
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in {"script", "style", "noscript"}:
+        if tag in {"script", "style", "noscript", "svg", "nav", "header", "footer", "form"}:
             self._ignored_depth += 1
             return
 
@@ -101,7 +100,7 @@ class _CompanyPageParser(HTMLParser):
 
     # HTML 태그의 종료를 처리하고, 필요한 정보를 추출하는 로직을 구현
     def handle_endtag(self, tag: str) -> None:
-        if tag in {"script", "style", "noscript"}:
+        if tag in {"script", "style", "noscript", "svg", "nav", "header", "footer", "form"}:
             if self._ignored_depth:
                 self._ignored_depth -= 1
             return
@@ -180,7 +179,7 @@ def fetch_company_page(url: str, timeout_seconds: int | None = None) -> CompanyP
     timeout = timeout_seconds if timeout_seconds is not None else settings.company_crawl_timeout_seconds
     request = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; WehomeVideoAgent/1.0)"})
 
-    print(f"[CompanyIngest] Fetch started: {url} (timeout={timeout}s)", flush=True)
+    print(f"[CompanyIngest] 페이지 가져오는 중: {url} (제한 시간={timeout}초)", flush=True)
     started_at = time.monotonic()
 
     with urlopen(request, timeout=timeout) as response:
@@ -190,11 +189,9 @@ def fetch_company_page(url: str, timeout_seconds: int | None = None) -> CompanyP
     parser = _CompanyPageParser(url)
     parser.feed(html_text)
 
-    body_text = parser._normalize_text(" ".join(parser.body_chunks))
-    if settings.company_body_max_chars > 0:
-        body_text = body_text[: settings.company_body_max_chars]
+    body_text = _prepare_body_text(parser.body_chunks, settings.company_body_max_chars)
     elapsed_seconds = time.monotonic() - started_at
-    print(f"[CompanyIngest] Fetch completed: {url} ({elapsed_seconds:.2f}s)", flush=True)
+    print(f"[CompanyIngest] 페이지 가져오기 완료: {url} ({elapsed_seconds:.2f}초)", flush=True)
 
     return CompanyPageSnapshot(
         url=url,
@@ -222,7 +219,7 @@ def crawl_company_site(
 
     snapshots: list[CompanyPageSnapshot] = []
     crawl_started_at = time.monotonic()
-    print(f"[CompanyIngest] Crawl started: {min(len(source_urls), page_limit)} page(s)", flush=True)
+    print(f"[CompanyIngest] 크롤링 시작: {min(len(source_urls), page_limit)}개 페이지", flush=True)
 
     for url in source_urls[:page_limit]:
         page_started_at = time.monotonic()
@@ -230,19 +227,19 @@ def crawl_company_site(
             snapshot = fetch_company_page(url, timeout_seconds=timeout_seconds)
             snapshots.append(snapshot)
             page_elapsed = time.monotonic() - page_started_at
-            print(f"[CompanyIngest] Page done: {url} ({page_elapsed:.2f}s)", flush=True)
+            print(f"[CompanyIngest] 페이지 처리 완료: {url} ({page_elapsed:.2f}초)", flush=True)
         except Exception as exc:
             page_elapsed = time.monotonic() - page_started_at
-            print(f"[CompanyIngest] Page failed: {url} ({page_elapsed:.2f}s) -> {exc}", flush=True)
+            print(f"[CompanyIngest] 페이지 처리 실패: {url} ({page_elapsed:.2f}초) -> {exc}", flush=True)
             if settings.company_crawl_continue_on_error:
                 continue
             raise
 
     crawl_elapsed = time.monotonic() - crawl_started_at
     if source_urls and not snapshots:
-        raise RuntimeError("Company crawl finished without any successful pages.")
+        raise RuntimeError("회사 웹사이트 크롤링에서 성공한 페이지가 없습니다.")
 
-    print(f"[CompanyIngest] Crawl finished: {len(snapshots)} page(s) in {crawl_elapsed:.2f}s", flush=True)
+    print(f"[CompanyIngest] 크롤링 완료: {len(snapshots)}개 페이지, 총 {crawl_elapsed:.2f}초", flush=True)
     return snapshots
 
 
@@ -251,23 +248,11 @@ def build_company_profile(
     pages: list[CompanyPageSnapshot],
     brand_name: str | None = None,
     output_path: str | None = None,
+    run_number: int | None = None,
 ) -> CompanyProfile:
     source_urls = _dedupe_preserve_order([page.canonical_url or page.url for page in pages])
-    image_urls: list[str] = []
-    summary_points: list[str] = []
-
-    for page in pages:
-        for image_url in page.image_urls:
-            if image_url not in image_urls:
-                image_urls.append(image_url)
-
-        for text in [page.meta_description, page.og_title, page.og_description, *page.headings]:
-            normalized_text = text.strip()
-            if normalized_text and normalized_text not in summary_points:
-                summary_points.append(normalized_text)
-
-        if page.body_text and page.body_text not in summary_points:
-            summary_points.append(page.body_text[:300])
+    summary_points = _build_summary_points(pages, max_points=settings.company_summary_max_points)
+    image_urls = _rank_image_urls(pages, max_urls=settings.company_image_max_urls)
 
     inferred_brand_name = brand_name or _infer_brand_name(pages)
     if not inferred_brand_name:
@@ -281,25 +266,23 @@ def build_company_profile(
         image_urls=image_urls,
     )
 
-    save_company_profile(profile, output_path=output_path)
+    save_company_profile(profile, output_path=output_path, run_number=run_number)
     return profile
 
 
 # 회사 웹사이트에서 크롤링한 결과를 다음 단계에서 재사용할 수 있도록 JSON 파일로 저장하는 함수
-def save_company_profile(profile: CompanyProfile, output_path: str | None = None) -> str:
+def save_company_profile(
+    profile: CompanyProfile,
+    output_path: str | None = None,
+    run_number: int | None = None,
+) -> str:
     base_path = output_path if output_path is not None else settings.company_profile_output_path
-    target_path = _build_numbered_output_path(base_path)
-    target_dir = os.path.dirname(target_path)
-    if target_dir:
-        os.makedirs(target_dir, exist_ok=True)
-
-    with open(target_path, "w", encoding="utf-8") as file_handle:
-        json.dump(asdict(profile), file_handle, ensure_ascii=False, indent=2)
-
+    target_path = _build_numbered_output_path(base_path, run_number=run_number)
+    write_json_atomic(target_path, asdict(profile), ensure_ascii=False, indent=2)
     return target_path
 
 
-def _build_numbered_output_path(base_path: str) -> str:
+def _build_numbered_output_path(base_path: str, run_number: int | None = None) -> str:
     target_dir = os.path.dirname(base_path)
     if target_dir:
         os.makedirs(target_dir, exist_ok=True)
@@ -308,10 +291,13 @@ def _build_numbered_output_path(base_path: str) -> str:
     file_root, file_ext = os.path.splitext(filename)
     if not file_ext:
         file_ext = ".json"
+    search_dir = target_dir or "."
+
+    if run_number is not None:
+        return os.path.join(search_dir, f"{file_root}_{run_number:03d}{file_ext}")
 
     pattern = re.compile(rf"^{re.escape(file_root)}_(\d{{3}}){re.escape(file_ext)}$")
     existing_numbers: list[int] = []
-    search_dir = target_dir or "."
 
     for entry_name in os.listdir(search_dir):
         match = pattern.match(entry_name)
@@ -320,6 +306,163 @@ def _build_numbered_output_path(base_path: str) -> str:
 
     next_number = (max(existing_numbers) + 1) if existing_numbers else 1
     return os.path.join(search_dir, f"{file_root}_{next_number:03d}{file_ext}")
+
+
+def _prepare_body_text(body_chunks: list[str], max_chars: int) -> str:
+    candidate_texts = []
+    seen_texts: set[str] = set()
+
+    for chunk in body_chunks:
+        cleaned_text = _clean_profile_text(chunk)
+        if not cleaned_text or _is_low_value_text(cleaned_text):
+            continue
+        dedupe_key = cleaned_text.lower()
+        if dedupe_key in seen_texts:
+            continue
+        seen_texts.add(dedupe_key)
+        candidate_texts.append(cleaned_text)
+
+    body_text = " ".join(candidate_texts)
+    if max_chars > 0:
+        body_text = body_text[:max_chars].rstrip()
+    return body_text
+
+
+def _build_summary_points(pages: list[CompanyPageSnapshot], max_points: int) -> list[str]:
+    candidates: list[tuple[int, str]] = []
+
+    for page in pages:
+        for text in [page.meta_description, page.og_description]:
+            candidates.append((100, text))
+        if page.og_title:
+            candidates.append((85, page.og_title))
+        for heading in page.headings[:8]:
+            candidates.append((70, heading))
+        for sentence in _split_profile_sentences(page.body_text)[:8]:
+            candidates.append((45, sentence))
+
+    ranked_points: list[str] = []
+    seen_keys: set[str] = set()
+    ranked_candidates = sorted(enumerate(candidates), key=lambda item: (-item[1][0], item[0]))
+    for _, (_, raw_text) in ranked_candidates:
+        cleaned_text = _clean_profile_text(raw_text)
+        if not cleaned_text or _is_low_value_text(cleaned_text):
+            continue
+
+        dedupe_key = _dedupe_text_key(cleaned_text)
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        ranked_points.append(_trim_text(cleaned_text, 220))
+
+        if max_points > 0 and len(ranked_points) >= max_points:
+            break
+
+    return ranked_points
+
+
+def _split_profile_sentences(text: str) -> list[str]:
+    normalized_text = _clean_profile_text(text)
+    if not normalized_text:
+        return []
+
+    sentence_parts = re.split(r"(?<=[.!?。！？])\s+|(?<=[다요죠음함됨])\s+", normalized_text)
+    sentences: list[str] = []
+    for sentence in sentence_parts:
+        cleaned_sentence = _clean_profile_text(sentence)
+        if cleaned_sentence and len(cleaned_sentence) >= 20:
+            sentences.append(cleaned_sentence)
+    return sentences
+
+
+def _rank_image_urls(pages: list[CompanyPageSnapshot], max_urls: int) -> list[str]:
+    scored_images: list[tuple[int, int, str]] = []
+    seen_urls: set[str] = set()
+    order_index = 0
+
+    for page in pages:
+        if page.og_image_url:
+            scored_images.append(
+                (_score_image_url(page.og_image_url, is_og_image=True), order_index, page.og_image_url)
+            )
+            seen_urls.add(page.og_image_url)
+            order_index += 1
+
+        for image_url in page.image_urls:
+            if not image_url or image_url in seen_urls:
+                continue
+            seen_urls.add(image_url)
+            scored_images.append((_score_image_url(image_url, is_og_image=False), order_index, image_url))
+            order_index += 1
+
+    ranked_urls = [image_url for _, _, image_url in sorted(scored_images, key=lambda item: (-item[0], item[1]))]
+    if max_urls > 0:
+        return ranked_urls[:max_urls]
+    return ranked_urls
+
+
+def _score_image_url(image_url: str, is_og_image: bool) -> int:
+    lowered_url = image_url.lower()
+    score = 100 if is_og_image else 0
+
+    if re.search(r"\.(jpg|jpeg|png|webp)(?:[?#].*)?$", lowered_url):
+        score += 20
+    if any(keyword in lowered_url for keyword in ("hero", "main", "visual", "brand", "product", "service", "banner")):
+        score += 25
+    if any(keyword in lowered_url for keyword in ("logo", "icon", "favicon", "sprite", "placeholder", "loading")):
+        score -= 35
+    if lowered_url.endswith(".svg") or ".svg?" in lowered_url:
+        score -= 25
+    if re.search(r"(^|[-_/])(?:1x1|16x16|32x32|48x48|64x64)(?:[-_.?/]|$)", lowered_url):
+        score -= 45
+
+    return score
+
+
+def _clean_profile_text(value: str) -> str:
+    cleaned_text = re.sub(r"\s+", " ", value or "").strip()
+    cleaned_text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", cleaned_text)
+    return cleaned_text
+
+
+def _is_low_value_text(value: str) -> bool:
+    cleaned_text = value.strip()
+    if len(cleaned_text) < 8:
+        return True
+
+    lowered_text = cleaned_text.lower()
+    low_value_keywords = {
+        "cookie",
+        "privacy policy",
+        "terms",
+        "login",
+        "sign in",
+        "sign up",
+        "copyright",
+        "all rights reserved",
+        "개인정보",
+        "이용약관",
+        "로그인",
+        "회원가입",
+        "쿠키",
+        "사업자등록",
+        "고객센터",
+    }
+    if len(cleaned_text) < 80 and any(keyword in lowered_text for keyword in low_value_keywords):
+        return True
+    if len(set(cleaned_text)) <= 3:
+        return True
+    return False
+
+
+def _dedupe_text_key(value: str) -> str:
+    return re.sub(r"[\W_]+", "", value.lower())
+
+
+def _trim_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars].rstrip() + "..."
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:

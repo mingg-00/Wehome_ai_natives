@@ -36,17 +36,17 @@ class DeliveryAgent:
 
         if not self.webhook_url:
             # 전송 단계는 웹훅이 없으면 동작할 수 없으므로 생성 시점에 바로 실패시킨다.
-            raise DeliveryError("DISCORD_WEBHOOK_URL is not configured.")
+            raise DeliveryError("DISCORD_WEBHOOK_URL이 설정되지 않았습니다.")
 
     def send_video(self, output_video_path: str, caption_text: str) -> bool:
         # 기능 토글이 꺼져 있으면 실제 업로드를 건너뛴다.
         if not self.enabled:
-            print("[DeliveryAgent] Discord delivery is disabled. Upload skipped.")
+            print("[DeliveryAgent] Discord 전송이 꺼져 있어 업로드를 건너뜁니다.")
             return False
 
         # 디스코드로 보낼 파일이 없으면 바로 예외를 올려 잘못된 호출을 드러낸다.
         if not os.path.exists(output_video_path):
-            raise FileNotFoundError(f"Video file not found: {output_video_path}")
+            raise FileNotFoundError(f"영상 파일을 찾을 수 없습니다: {output_video_path}")
 
         payload = {"content": f"[POST_REQUEST]\n{caption_text}"}
         last_error: Exception | None = None
@@ -59,22 +59,22 @@ class DeliveryAgent:
                     response = self.session.post(self.webhook_url, data=payload, files=files, timeout=30)
 
                 if response.status_code in (200, 204):
-                    print("[DeliveryAgent] Discord delivery succeeded.")
+                    print("[DeliveryAgent] Discord 전송 완료.")
                     return True
 
                 if response.status_code == 429 or 500 <= response.status_code < 600:
                     # 속도 제한이나 서버 오류는 일시적일 수 있어 재시도 대상으로 둔다.
                     last_error = DeliveryError(
-                        f"Discord delivery failed with retryable status: {response.status_code} {response.reason}"
+                        f"Discord 전송 재시도 가능 오류: {response.status_code} {response.reason}"
                     )
                 else:
                     # 4xx 중 복구 불가한 오류는 즉시 실패시킨다.
                     raise DeliveryError(
-                        f"Discord delivery failed: {response.status_code} {response.reason}"
+                        f"Discord 전송 실패: {response.status_code} {response.reason}"
                     )
             except requests.RequestException as exc:
                 # 네트워크 문제도 재시도에 포함한다.
-                last_error = DeliveryError(f"Discord delivery request failed: {exc.__class__.__name__}")
+                last_error = DeliveryError(f"Discord 전송 요청 실패: {exc.__class__.__name__}")
 
             if attempt < self.retry_attempts:
                 # 점진적 backoff로 짧은 간격의 연속 실패를 피한다.
@@ -82,5 +82,5 @@ class DeliveryAgent:
 
         # 모든 재시도가 실패했을 때만 최종 오류를 올린다.
         raise DeliveryError(
-            f"Discord delivery failed after {self.retry_attempts} attempts."
+            f"Discord 전송이 {self.retry_attempts}회 시도 후 실패했습니다."
         ) from last_error
