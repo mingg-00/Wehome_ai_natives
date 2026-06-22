@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # .env를 engine 모듈 import 전에 로드해야 Settings 클래스가 올바른 값을 읽는다
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
-from engine import social, governance, schedule as sched
+from engine import social, governance, schedule as sched, events as evt, multilang
 
 
 def _friendly_error(error: str) -> str:
@@ -75,20 +75,73 @@ def _cleanup_pending():
 @tasks.loop(minutes=5)
 async def _auto_publish_loop():
     results = social.publish(due_only=True)
-    if not results:
+    if results:
+        lines = ["⏰ **예약 게시 자동 실행**\n"]
+        for r in results:
+            if r["status"] == "posted":
+                lines.append(f"✅ {r['platform']} 게시 완료 (id={r.get('id')})")
+            elif r["status"] == "dry-run":
+                lines.append(f"👀 {r['platform']} dry-run — {r.get('reason','')}")
+            else:
+                lines.append(f"❌ {r['platform']} 오류: {r.get('error','')}")
+        msg = "\n".join(lines)
+        print(msg)
+        if NOTIFY_CHANNEL_ID:
+            ch = client.get_channel(NOTIFY_CHANNEL_ID)
+            if ch:
+                await ch.send(msg)
+
+    await _check_seasonal_campaigns()
+
+
+async def _check_seasonal_campaigns():
+    """D-14 이벤트가 있으면 다국어 캠페인 초안을 채널에 알림."""
+    due = evt.due_campaigns()
+    if not due:
         return
-    lines = ["⏰ **예약 게시 자동 실행**\n"]
-    for r in results:
-        if r["status"] == "posted":
-            lines.append(f"✅ {r['platform']} 게시 완료 (id={r.get('id')})")
-        elif r["status"] == "dry-run":
-            lines.append(f"👀 {r['platform']} dry-run — {r.get('reason','')}")
-        else:
-            lines.append(f"❌ {r['platform']} 오류: {r.get('error','')}")
-    msg = "\n".join(lines)
-    print(msg)
-    if NOTIFY_CHANNEL_ID:
-        ch = client.get_channel(NOTIFY_CHANNEL_ID)
+
+    ch = client.get_channel(NOTIFY_CHANNEL_ID) if NOTIFY_CHANNEL_ID else None
+
+    for campaign in due:
+        print(f"🗓️ 시즌 캠페인 트리거: {campaign['name_ko']} (D-{campaign['lead_days']})")
+
+        platforms = ["threads", "facebook", "instagram"]
+        topic_by_lang = {
+            "ko": campaign["topic_ko"],
+            "en": campaign["topic_en"],
+            "ja": campaign["topic_ja"],
+        }
+
+        lang_labels = {"ko": "🇰🇷 한국어", "en": "🇺🇸 English", "ja": "🇯🇵 日本語"}
+        notify_lines = [
+            f"🗓️ **시즌 캠페인 자동 생성** — {campaign['name_ko']}",
+            f"📅 이벤트 시작: {campaign['start_date']} (D-{campaign['days_until']})",
+            "",
+        ]
+
+        # 언어별 큐 적재
+        ml_posts = multilang.generate_posts_multilang(topic_by_lang, platforms)
+        for lang, posts in ml_posts.items():
+            if lang == "_mode":
+                continue
+            label = lang_labels.get(lang, lang)
+            notify_lines.append(f"**{label}** 초안 생성 완료")
+            for platform in platforms:
+                post = posts.get(platform)
+                if not post:
+                    continue
+                item = social.enqueue(
+                    platform=platform,
+                    topic=topic_by_lang.get(lang, campaign["topic_ko"]),
+                    post=post,
+                    governance="PASS",
+                    scheduled_at=sched.next_golden_time(platform),
+                )
+                notify_lines.append(f"  • {platform}: {item['id']}")
+
+        notify_lines.append("\n👍 개별 게시물 승인 후 골든타임에 자동 발행됩니다.")
+        msg = "\n".join(notify_lines)
+        print(msg)
         if ch:
             await ch.send(msg)
 
@@ -158,7 +211,7 @@ async def on_message(message):
         "facebook",
         "instagram",
         "youtube",
-        # "x",  # X API 무료 플랜 사용 중 (크레딧 소진 시 402 오류) → 유료 전환 시 주석 해제
+        # "x",  # 쓰기 크레딧 리셋 후 주석 해제 (developer.x.com → Dashboard → Usage 확인)
     ]
 
     posts = social.generate_posts(
