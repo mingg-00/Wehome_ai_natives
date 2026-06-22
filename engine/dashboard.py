@@ -11,7 +11,7 @@ import json
 import markdown as md
 
 from .config import OUTPUT_DIR
-from . import publisher, social
+from . import publisher, social, schedule as sched
 
 _BADGE = {
     "APPROVED": ("#0a7d28", "#e3f7e8"),
@@ -82,6 +82,100 @@ def _social_panel() -> str:
       <div class="meta">총 {len(q)}건 · 승인 {appr} · 게시 {posted} · "🚀 지금 게시" = 승인+즉시 게시(토큰 없으면 dry-run)</div>
       {_GEN_FORM}
       {table}
+    </div>"""
+
+
+def _calendar_panel() -> str:
+    """향후 7일 콘텐츠 캘린더 패널."""
+    import datetime
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    today = datetime.datetime.now(kst).date()
+    days = [today + datetime.timedelta(days=i) for i in range(7)]
+    day_labels = ["오늘", "내일"] + [(today + datetime.timedelta(days=i)).strftime("%-m/%-d") for i in range(2, 7)]
+
+    q = social.queue()
+    # 날짜별 그룹
+    by_date: dict[str, list[dict]] = {}
+    unscheduled = []
+    for it in q:
+        if it["status"] == "POSTED":
+            continue
+        sa = it.get("scheduled_at")
+        if not sa:
+            unscheduled.append(it)
+            continue
+        try:
+            t = datetime.datetime.fromisoformat(sa)
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=kst)
+            d = t.astimezone(kst).date().isoformat()
+            by_date.setdefault(d, []).append(it)
+        except Exception:
+            unscheduled.append(it)
+
+    _PLAT_COLOR = {
+        "instagram": "#dc2743", "threads": "#111", "facebook": "#1877f2",
+        "x": "#000", "pinterest": "#e60023", "youtube": "#ff0000",
+    }
+    _STATUS_BG = {"APPROVED": "#e3f7e8", "DRAFT": "#fdf3d0"}
+
+    cols = []
+    for d, label in zip(days, day_labels):
+        iso = d.isoformat()
+        items_today = by_date.get(iso, [])
+        cells = []
+        for it in items_today:
+            color = _PLAT_COLOR.get(it["platform"], "#7c3aed")
+            bg = _STATUS_BG.get(it["status"], "#ede9fe")
+            t_str = ""
+            if it.get("scheduled_at"):
+                try:
+                    t = datetime.datetime.fromisoformat(it["scheduled_at"])
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=kst)
+                    t_str = t.astimezone(kst).strftime("%H:%M")
+                except Exception:
+                    pass
+            cells.append(
+                f'<div style="background:{bg};border-left:3px solid {color};'
+                f'border-radius:5px;padding:4px 7px;margin-bottom:4px;font-size:12px">'
+                f'<b style="color:{color}">{it["platform"].upper()}</b>'
+                f'{" " + t_str if t_str else ""}'
+                f'<div style="color:#444;margin-top:2px">{it["text"][:40]}…</div>'
+                f'</div>'
+            )
+        empty = '<div style="color:#ccc;font-size:12px;text-align:center;padding:8px 0">—</div>'
+        cols.append(
+            f'<td style="vertical-align:top;padding:8px;min-width:110px;border-right:1px solid #f0eef8">'
+            f'<div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#5b21b6">{label}</div>'
+            f'<div style="font-size:11px;color:#aaa;margin-bottom:6px">{iso}</div>'
+            f'{"".join(cells) or empty}</td>'
+        )
+
+    # 골든타임 안내
+    golden_rows = "".join(
+        f"<tr><td style='padding:3px 8px;font-weight:600'>{p}</td>"
+        f"<td style='padding:3px 8px;color:#555'>{sched.golden_hours_label(p)}</td></tr>"
+        for p in ["instagram", "threads", "facebook", "x", "youtube"]
+    )
+
+    return f"""<div class="card">
+      <div class="title">📅 콘텐츠 캘린더 (향후 7일)</div>
+      <div class="meta">
+        예약 대기 {sum(len(v) for v in by_date.values())}건 · 미예약 {len(unscheduled)}건
+        &nbsp;|&nbsp; 📅 Discord 반응 = 골든타임 자동 예약 / 👍 = 즉시 게시
+      </div>
+      <div style="overflow-x:auto;margin-top:12px">
+        <table style="border-collapse:collapse;width:100%"><tr>{"".join(cols)}</tr></table>
+      </div>
+      <details style="margin-top:12px">
+        <summary>골든타임 기준</summary>
+        <table style="margin-top:8px;font-size:13px">{golden_rows}</table>
+        <p style="font-size:12px;color:#999;margin:4px 0">
+          ※ 위홈 계정 인사이트 데이터 축적 후 engine/schedule.py의 GOLDEN_HOURS를 교체하면
+          실제 성과 기반 스케줄링으로 업그레이드됩니다.
+        </p>
+      </details>
     </div>"""
 
 
@@ -177,6 +271,7 @@ def build() -> str:
     <div class="stat"><div class="num" style="color:#b00020">{fails}</div><div class="lbl">검수 FAIL</div></div>
   </div>
   {_social_panel()}
+  {_calendar_panel()}
   <h2 style="font-size:18px;margin:24px 0 12px">📝 생성된 콘텐츠</h2>
   {''.join(cards)}
 </div>

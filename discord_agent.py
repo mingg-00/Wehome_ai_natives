@@ -3,14 +3,14 @@ import os
 import re
 
 import discord
+from discord.ext import tasks
 from pathlib import Path
 from dotenv import load_dotenv
 
 # .env를 engine 모듈 import 전에 로드해야 Settings 클래스가 올바른 값을 읽는다
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
-from engine import social
-from engine import governance
+from engine import social, governance, schedule as sched
 
 
 def _friendly_error(error: str) -> str:
@@ -47,19 +47,19 @@ def _friendly_error(error: str) -> str:
 # =========================
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
-
-# =========================
+# 예약 게시 결과 알림을 보낼 채널 ID (선택, .env의 DISCORD_NOTIFY_CHANNEL)
+NOTIFY_CHANNEL_ID = int(os.getenv("DISCORD_NOTIFY_CHANNEL", "0") or "0")
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 client = discord.Client(intents=intents)
 
-# Discord 메시지ID -> (SNS 큐 ID 목록, 생성 시각)
-# TTL 1시간 — 👍 없이 방치된 항목 자동 제거
+# Discord 메시지ID -> (SNS 큐 데이터, 생성 시각)
+# TTL 1시간 — 반응 없이 방치된 항목 자동 제거
 import time as _time
 _PENDING_TTL = 3600
-pending_posts: dict[int, tuple[list, float]] = {}
+pending_posts: dict[int, tuple[dict, float]] = {}
 
 
 def _cleanup_pending():
@@ -69,12 +69,37 @@ def _cleanup_pending():
         del pending_posts[mid]
 
 
+# ---------------------------------------------------------------------------
+# 백그라운드: 예약 시각 도래한 APPROVED 항목 자동 게시 (5분마다)
+# ---------------------------------------------------------------------------
+@tasks.loop(minutes=5)
+async def _auto_publish_loop():
+    results = social.publish(due_only=True)
+    if not results:
+        return
+    lines = ["⏰ **예약 게시 자동 실행**\n"]
+    for r in results:
+        if r["status"] == "posted":
+            lines.append(f"✅ {r['platform']} 게시 완료 (id={r.get('id')})")
+        elif r["status"] == "dry-run":
+            lines.append(f"👀 {r['platform']} dry-run — {r.get('reason','')}")
+        else:
+            lines.append(f"❌ {r['platform']} 오류: {r.get('error','')}")
+    msg = "\n".join(lines)
+    print(msg)
+    if NOTIFY_CHANNEL_ID:
+        ch = client.get_channel(NOTIFY_CHANNEL_ID)
+        if ch:
+            await ch.send(msg)
+
+
 @client.event
 async def on_ready():
     print("=" * 60)
     print(f"🤖 로그인 완료: {client.user}")
     print("📡 [POST_REQUEST] 감시 시작")
     print("=" * 60)
+    _auto_publish_loop.start()
 
 
 @client.event
@@ -164,24 +189,28 @@ async def on_message(message):
             text
         )
 
+        golden = sched.next_golden_time(platform)
+
         item = social.enqueue(
             platform=platform,
             topic=topic,
             post=post,
             governance=report["status"],
-            scheduled_at=None,
+            scheduled_at=golden,   # 기본값: 다음 골든타임으로 예약
             video_path=video_path,
         )
 
         created_ids.append(item["id"])
 
+        golden_label = sched.golden_hours_label(platform)
         preview += (
-            f"[{platform.upper()}]\n"
+            f"[{platform.upper()}] 골든타임: {golden_label}\n"
             f"{text[:500]}\n\n"
         )
 
     preview += (
-        "👍 이 메시지에 반응을 누르면 실제 게시됩니다.\n"
+        "👍 지금 즉시 게시\n"
+        "📅 다음 골든타임에 예약 게시\n"
         "❌ 검수 FAIL 상태는 자동 차단됩니다."
     )
 
@@ -192,6 +221,7 @@ async def on_message(message):
     pending_posts[draft_msg.id] = ({"ids": created_ids, "video_path": video_path}, _time.time())
 
     await draft_msg.add_reaction("👍")
+    await draft_msg.add_reaction("📅")
 
 
 @client.event
@@ -209,41 +239,50 @@ async def on_reaction_add(reaction, user):
     if message_id not in pending_posts:
         return
 
-    data, _ = pending_posts.pop(message_id)
+    emoji = str(reaction.emoji)
 
+    # 📅: 골든타임 예약 (즉시 게시 안 함, APPROVED만 설정)
+    if emoji == "📅":
+        data, _ = pending_posts.pop(message_id)
+        ids = data["ids"]
+        lines = ["📅 **골든타임 예약 완료**\n"]
+        for item_id in ids:
+            result = social.approve(item_id)
+            # scheduled_at은 이미 enqueue 시 골든타임으로 설정돼 있음
+            q = {it["id"]: it for it in social.queue()}
+            it = q.get(item_id, {})
+            plat = it.get("platform", "")
+            at = it.get("scheduled_at", "?")
+            golden_label = sched.golden_hours_label(plat)
+            lines.append(f"✅ {plat.upper()} → {at[:16]} (골든타임 {golden_label})")
+        lines.append("\n⏰ 예약 시간이 되면 자동 게시됩니다.")
+        await reaction.message.reply("\n".join(lines))
+        return
+
+    # 👍: 즉시 게시
+    if emoji != "👍":
+        return
+
+    data, _ = pending_posts.pop(message_id)
     ids = data["ids"]
     video_path = data["video_path"]
 
-    print("👍 승인됨")
-    print("영상:", video_path)
-
+    print("👍 즉시 게시 승인됨")
     result_text = "🚀 SNS 게시 시작\n\n"
 
     for item_id in ids:
-
         social.approve(item_id)
-
         result = social.publish_one(item_id)
 
         if result.get("status") == "posted":
             result_text += f"✅ {item_id}\n"
-
         elif result.get("status") == "dry-run":
-            result_text += (
-                f"👀 {item_id}\n"
-                f"   (토큰 없음 → dry-run)\n"
-            )
-
+            result_text += f"👀 {item_id}\n   (토큰 없음 → dry-run)\n"
         else:
             friendly = _friendly_error(result.get("error", "알 수 없는 오류"))
-            result_text += (
-                f"❌ {item_id}\n"
-                f"   {friendly}\n"
-            )
+            result_text += f"❌ {item_id}\n   {friendly}\n"
 
     await reaction.message.reply(result_text)
-
-    del pending_posts[message_id]
 
 
 if not DISCORD_BOT_TOKEN:
