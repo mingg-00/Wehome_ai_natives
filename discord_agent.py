@@ -74,6 +74,31 @@ _golden_times = sorted({
 })  # 결과: UTC 0,2,3,4,6,9,10,11,12시 = KST 9,11,12,13,15,18,19,20,21시
 
 
+_PLAT_ICON = {
+    "threads": "🧵", "facebook": "📘", "instagram": "📸",
+    "youtube": "▶️", "x": "𝕏", "pinterest": "📌",
+}
+
+def _post_preview(item: dict) -> str:
+    """큐 아이템 → 읽기 쉬운 한 줄 미리보기."""
+    text = item.get("text", "")
+    platform = item.get("platform", "")
+    icon = _PLAT_ICON.get(platform, "📢")
+    at = item.get("scheduled_at", "")
+    time_str = ""
+    if at:
+        try:
+            t = _dt.datetime.fromisoformat(at)
+            KST = _dt.timezone(_dt.timedelta(hours=9))
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=KST)
+            time_str = f" · ⏰ {t.astimezone(KST).strftime('%m/%d %H:%M')}"
+        except Exception:
+            pass
+    preview = text[:55] + ("…" if len(text) > 55 else "")
+    return f"{icon} **{platform.upper()}**{time_str}\n> {preview}"
+
+
 def _cleanup_pending():
     now = _time.time()
     expired = [mid for mid, (_, ts) in pending_posts.items() if now - ts > _PENDING_TTL]
@@ -137,7 +162,7 @@ async def _check_seasonal_campaigns():
         notify_lines = [
             f"🗓️ **시즌 캠페인 자동 생성** — {campaign['name_ko']}",
             f"📅 이벤트 시작: {campaign['start_date']} (D-{campaign['days_until']})",
-            "",
+            "─────────────────────",
         ]
 
         # 언어별 큐 적재
@@ -146,7 +171,7 @@ async def _check_seasonal_campaigns():
             if lang == "_mode":
                 continue
             label = lang_labels.get(lang, lang)
-            notify_lines.append(f"**{label}** 초안 생성 완료")
+            notify_lines.append(f"\n**{label}**")
             for platform in platforms:
                 post = posts.get(platform)
                 if not post:
@@ -158,9 +183,9 @@ async def _check_seasonal_campaigns():
                     governance="PASS",
                     scheduled_at=sched.next_golden_time(platform),
                 )
-                notify_lines.append(f"  • {platform}: {item['id']}")
+                notify_lines.append(_post_preview(item))
 
-        notify_lines.append("\n👍 개별 게시물 승인 후 골든타임에 자동 발행됩니다.")
+        notify_lines.append("\n👍 지금 즉시 게시  |  📅 골든타임 예약")
         msg = "\n".join(notify_lines)
         print(msg)
         if ch:
@@ -188,8 +213,8 @@ async def _check_trends():
     for topic in topics:
         lines = [
             f"🔥 **트렌드 캠페인 자동 생성** — `{topic['keyword']}`",
-            f"📍 연관: {topic.get('matched_location') or topic.get('matched_travel')}",
-            "",
+            f"📍 주제: {topic['topic_ko']}",
+            "─────────────────────",
         ]
         for platform in platforms:
             post = social.generate_posts(topic["topic_ko"], [platform]).get(platform)
@@ -202,9 +227,9 @@ async def _check_trends():
                 governance="PASS",
                 scheduled_at=sched.next_golden_time(platform),
             )
-            lines.append(f"  • {platform}: {item['id']}")
+            lines.append(_post_preview(item))
 
-        lines.append("\n👍 승인 후 골든타임에 자동 발행됩니다.")
+        lines.append("\n👍 지금 즉시 게시  |  📅 골든타임 예약")
         msg = "\n".join(lines)
         print(msg)
         if ch:
@@ -230,8 +255,8 @@ async def _check_new_properties():
     for prop in new_props:
         lines = [
             f"🏠 **신규 숙소 감지** — {prop.title}",
-            f"📍 지역: {prop.region_ko} | 🔗 {prop.room_url}",
-            "",
+            f"📍 지역: {prop.region_ko}  |  🔗 {prop.room_url}",
+            "─────────────────────",
         ]
         for platform in platforms:
             post = social.generate_posts(
@@ -249,9 +274,9 @@ async def _check_new_properties():
                 governance="PASS",
                 scheduled_at=sched.next_golden_time(platform),
             )
-            lines.append(f"  • {platform}: {item['id']}")
+            lines.append(_post_preview(item))
 
-        lines.append("\n👍 승인 후 골든타임에 자동 발행됩니다.")
+        lines.append("\n👍 지금 즉시 게시  |  📅 골든타임 예약")
         msg = "\n".join(lines)
         print(msg)
         if ch:
