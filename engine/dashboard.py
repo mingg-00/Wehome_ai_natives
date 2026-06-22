@@ -13,19 +13,69 @@ import markdown as md
 from .config import OUTPUT_DIR
 from . import publisher, social, schedule as sched, events as evt
 
+# ---------------------------------------------------------------------------
+# SVG 아이콘 시스템 (Lucide 라인 아이콘) — 이모지 대체
+# ---------------------------------------------------------------------------
+_ICON_PATHS = {
+    "calendar": '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+    "calendar-clock": '<path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="M16 2v4M8 2v4M3 10h7"/><circle cx="18" cy="16" r="4"/><path d="M18 14.5V16l1 1"/>',
+    "smartphone": '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
+    "sparkles": '<path d="M12 3l1.9 4.8L18.5 9l-4.6 1.2L12 15l-1.9-4.8L5.5 9l4.6-1.2z"/><path d="M19 14l.7 1.8L21.5 17l-1.8.7L19 19.5l-.7-1.8L16.5 17l1.8-.5z"/>',
+    "file-text": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>',
+    "trending-up": '<path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>',
+    "home": '<path d="M3 9.5L12 3l9 6.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',
+    "send": '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>',
+    "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    "check": '<path d="M20 6L9 17l-5-5"/>',
+    "arrow-right": '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    "globe": '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>',
+}
+
+
+def _icon(name: str, size: int = 18, color: str = "currentColor", stroke: float = 2) -> str:
+    """Lucide 스타일 인라인 SVG 아이콘 반환."""
+    path = _ICON_PATHS.get(name, "")
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
+        f'stroke="{color}" stroke-width="{stroke}" stroke-linecap="round" '
+        f'stroke-linejoin="round" style="vertical-align:-3px;flex-shrink:0">{path}</svg>'
+    )
+
+
+# 브랜드 글리프 (네비용) — 단색 fill SVG
+_BRAND_PATHS = {
+    "instagram": '<rect x="2.5" y="2.5" width="19" height="19" rx="5.5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.6" cy="6.4" r="1.2"/>',
+    "threads": '<path d="M16.3 11.4c-.1 0-.2-.1-.3-.1-.2-3-1.8-4.7-4.5-4.7-1.6 0-3 .7-3.8 2l1.5 1c.6-.9 1.5-1.1 2.3-1.1 1.5 0 2.3.9 2.4 2.3-.6-.1-1.2-.2-1.9-.2-2.4 0-4 1.3-3.9 3.2.1 1.6 1.5 2.6 3.2 2.6 1.4 0 2.9-.7 3.4-2.7.3.7.9 1.2 1.6 1.5-.5-1.3-.3-3.3 0-3.9zm-4.6 2.9c-.6 0-1.3-.3-1.4-.9-.1-.7.7-1 1.6-1 .5 0 1 .1 1.5.2-.2 1.2-.9 1.7-1.7 1.7z"/>',
+    "facebook": '<path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.3v7A10 10 0 0 0 22 12z"/>',
+    "youtube": '<path d="M21.6 7.2s-.2-1.4-.8-2c-.8-.8-1.6-.8-2-.9C15.9 4 12 4 12 4s-3.9 0-6.8.3c-.4 0-1.2.1-2 .9-.6.6-.8 2-.8 2S2 8.8 2 10.5v1.4c0 1.6.2 3.3.2 3.3s.2 1.4.8 2c.8.8 1.8.8 2.3.9 1.7.2 6.7.3 6.7.3s3.9 0 6.8-.3c.4 0 1.2-.1 2-.9.6-.6.8-2 .8-2s.2-1.6.2-3.3v-1.4c0-1.7-.2-3.3-.2-3.3zM9.9 14.6V8.9l5.2 2.9-5.2 2.8z"/>',
+}
+
+
+def _brand(name: str, size: int = 17) -> str:
+    """SNS 브랜드 글리프 (흰색 단색)."""
+    path = _BRAND_PATHS.get(name, "")
+    fill = "none" if name == "instagram" else "#fff"
+    stroke = "#fff" if name == "instagram" else "none"
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="{fill}" '
+        f'stroke="{stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{path}</svg>'
+    )
+
+
 _BADGE = {
-    "APPROVED": ("#0a7d28", "#e3f7e8"),
-    "DRAFT": ("#8a6d00", "#fdf3d0"),
-    "PASS": ("#0a7d28", "#e3f7e8"),
-    "WARN": ("#8a6d00", "#fdf3d0"),
-    "FAIL": ("#b00020", "#fde3e6"),
+    "APPROVED": ("#15803d", "#eafaf0"),
+    "DRAFT": ("#92710a", "#fbf4dd"),
+    "PASS": ("#15803d", "#eafaf0"),
+    "WARN": ("#92710a", "#fbf4dd"),
+    "FAIL": ("#a8253a", "#fbe9ec"),
 }
 
 
 def _badge(text: str) -> str:
     fg, bg = _BADGE.get(text, ("#5b21b6", "#ede9fe"))
-    return (f'<span style="background:{bg};color:{fg};padding:2px 10px;'
-            f'border-radius:999px;font-size:12px;font-weight:700">{text}</span>')
+    return (f'<span style="background:{bg};color:{fg};padding:3px 10px;'
+            f'border-radius:var(--r-pill);font-size:11px;font-weight:600;'
+            f'letter-spacing:.02em">{text}</span>')
 
 
 def _publisher_view(text: str) -> tuple[str, bool]:
@@ -39,20 +89,17 @@ def _publisher_view(text: str) -> tuple[str, bool]:
     return (text[:end].rstrip() if end != -1 else text.rstrip()), (end != -1)
 
 
-_GEN_FORM = """
-  <div style="margin:12px 0;padding:14px;background:#f3eff9;border:1px solid #e3dcf3;border-radius:10px">
-    <div style="font-weight:700;margin-bottom:8px">✨ 새 SNS 글 생성 — 주제 입력 후 플랫폼 선택</div>
-    <input id="genTopic" placeholder="예: K-pop concert stay in Korea / 합법 숙박 꿀팁"
-           style="width:62%;min-width:240px;padding:8px;border:1px solid #cdbff0;border-radius:8px;font-size:14px">
-    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-      <button class="gen-btn" onclick="gen('x',this)">𝕏 X</button>
-      <button class="gen-btn" onclick="gen('instagram',this)">IG</button>
-      <button class="gen-btn" onclick="gen('threads',this)">@ Threads</button>
-      <button class="gen-btn" onclick="gen('pinterest',this)">P Pinterest</button>
-      <button class="gen-btn" onclick="gen('facebook',this)">f Facebook</button>
-      <button class="gen-btn" style="background:#5b21b6" onclick="gen('all',this)">전체 생성</button>
+_GEN_FORM = f"""
+  <div class="gen-form">
+    <div class="gen-form-title">{_icon('sparkles', 16)} 새 SNS 글 생성 — 주제 입력 후 플랫폼 선택</div>
+    <input id="genTopic" placeholder="예: K-pop concert stay in Korea / 합법 숙박 꿀팁" class="gen-input">
+    <div class="gen-btn-row">
+      <button class="gen-btn" onclick="gen('instagram',this)">Instagram</button>
+      <button class="gen-btn" onclick="gen('threads',this)">Threads</button>
+      <button class="gen-btn" onclick="gen('facebook',this)">Facebook</button>
+      <button class="gen-btn gen-btn-primary" onclick="gen('all',this)">전체 생성</button>
     </div>
-    <div style="font-size:12px;color:#888;margin-top:6px">선택한 플랫폼의 형식으로 AI가 자동 작성 → 아래 큐에 추가됩니다.</div>
+    <div class="gen-form-hint">선택한 플랫폼의 형식으로 AI가 자동 작성 → 아래 큐에 추가됩니다.</div>
   </div>"""
 
 
@@ -63,12 +110,12 @@ def _social_panel() -> str:
         st = _badge(it["status"])
         gov = _badge(it["governance"])
         if it["status"] == "POSTED":
-            btn = "🚀 게시됨"
+            btn = f"<span class='posted-tag'>{_icon('check', 13)} 게시됨</span>"
         elif it["governance"] == "FAIL":
-            btn = "<span style='color:#b00020'>검수 FAIL</span>"
+            btn = "<span style='color:#a8253a;font-weight:600'>검수 FAIL</span>"
         else:
             btn = (f"<button class='pub-btn' onclick=\"pub('{it['id']}', this)\">"
-                   f"🚀 지금 게시</button>")
+                   f"{_icon('send', 13)} 지금 게시</button>")
         rows.append(f"<tr><td>{_badge(it['platform'].upper())}</td><td>{st} {gov}</td>"
                     f"<td>{it['text'][:140]}</td><td style='white-space:nowrap'>{btn}</td></tr>")
     posted = sum(1 for it in q if it["status"] == "POSTED")
@@ -78,8 +125,8 @@ def _social_panel() -> str:
       </table></div></details>""" if q else
              '<p class="meta" style="color:#999">아직 생성된 글이 없습니다 — 위에서 주제를 입력하고 플랫폼을 누르세요.</p>')
     return f"""<div class="card">
-      <div class="title">📱 SNS 자동 포스팅 (자사 계정)</div>
-      <div class="meta">총 {len(q)}건 · 승인 {appr} · 게시 {posted} · "🚀 지금 게시" = 승인+즉시 게시(토큰 없으면 dry-run)</div>
+      <div class="title">{_icon('smartphone', 19, '#7c3aed')} SNS 자동 포스팅 (자사 계정)</div>
+      <div class="meta">총 {len(q)}건 · 승인 {appr} · 게시 {posted} · "지금 게시" = 승인+즉시 게시(토큰 없으면 dry-run)</div>
       {_GEN_FORM}
       {table}
     </div>"""
@@ -200,57 +247,38 @@ def _calendar_panel() -> str:
     scheduled_cnt = sum(len(v) for v in by_date.values())
 
     return f"""
-<div style="background:#fff;border:1px solid #e8e6ee;border-radius:14px;
-  padding:18px 22px;margin-bottom:20px;box-shadow:0 2px 8px rgba(124,58,237,.06)">
+<div class="cal-widget">
 
   <!-- 헤더 + 언어 탭 -->
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+  <div class="cal-head">
     <div>
-      <div style="font-size:16px;font-weight:700">📅 콘텐츠 캘린더</div>
-      <div style="font-size:12px;color:#888;margin-top:2px">
-        예약 대기 {scheduled_cnt}건 · 미예약 {len(unscheduled)}건
-      </div>
+      <div class="cal-title">{_icon('calendar', 18, '#7c3aed')} 콘텐츠 캘린더</div>
+      <div class="cal-sub">예약 대기 {scheduled_cnt}건 · 미예약 {len(unscheduled)}건</div>
     </div>
-    <div style="display:flex;gap:6px">
-      <button class="lang-btn active" id="tab-ko" onclick="setLang('ko')"
-        style="background:#7c3aed;color:#fff;border:none;border-radius:8px;
-        padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer">🇰🇷 한국어</button>
-      <button class="lang-btn" id="tab-en" onclick="setLang('en')"
-        style="background:#f3f0f9;color:#5b21b6;border:none;border-radius:8px;
-        padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer">🇺🇸 English</button>
-      <button class="lang-btn" id="tab-ja" onclick="setLang('ja')"
-        style="background:#f3f0f9;color:#5b21b6;border:none;border-radius:8px;
-        padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer">🇯🇵 日本語</button>
+    <div class="lang-tabs">
+      <button class="lang-btn active" id="tab-ko" onclick="setLang('ko')">한국어</button>
+      <button class="lang-btn" id="tab-en" onclick="setLang('en')">English</button>
+      <button class="lang-btn" id="tab-ja" onclick="setLang('ja')">日本語</button>
     </div>
   </div>
 
   <!-- 2컬럼: 7일 캘린더 + 시즌 이벤트 -->
-  <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+  <div class="cal-body">
 
     <!-- 7일 그리드 -->
-    <div style="flex:2;min-width:0;overflow-x:auto">
-      <table style="border-collapse:collapse;width:100%;min-width:560px">
-        <tr>{"".join(cols)}</tr>
-      </table>
-      <div style="margin-top:10px">
-        <details>
-          <summary style="cursor:pointer;color:#7c3aed;font-weight:600;font-size:13px">
-            골든타임 기준
-          </summary>
-          <table style="margin-top:6px">{golden_rows}</table>
-        </details>
-      </div>
+    <div class="cal-grid-col">
+      <table class="cal-grid"><tr>{"".join(cols)}</tr></table>
+      <details class="cal-golden">
+        <summary>골든타임 기준</summary>
+        <table style="margin-top:8px">{golden_rows}</table>
+      </details>
     </div>
 
     <!-- 시즌 이벤트 -->
-    <div style="flex:1;min-width:200px;max-width:280px;border-left:1px solid #f0eef8;padding-left:16px">
-      <div style="font-size:13px;font-weight:700;color:#5b21b6;margin-bottom:8px">
-        🗓️ 다가오는 이벤트
-      </div>
+    <div class="cal-events">
+      <div class="cal-events-title">{_icon('calendar-clock', 15, '#5b21b6')} 다가오는 이벤트</div>
       {evt_panels}
-      <div style="font-size:11px;color:#bbb;margin-top:8px">
-        D-14 도래 시 자동 캠페인 생성
-      </div>
+      <div class="cal-events-foot">D-14 도래 시 자동 캠페인 생성</div>
     </div>
 
   </div>
@@ -293,63 +321,129 @@ def build() -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wehome AI Marketing Engine</title>
 <style>
-  body{{font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;
-    background:#faf9fc;color:#1a1a1a;margin:0;padding:32px;line-height:1.6}}
-  .wrap{{max-width:920px;margin:0 auto}}
-  h1{{font-size:24px;margin:0 0 4px;color:#7c3aed}}
-  .sub{{color:#666;margin:0 0 16px}}
-  .summary{{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px}}
-  .stat{{background:#fff;border:1px solid #e8e6ee;border-radius:12px;padding:14px 20px;flex:1;min-width:120px}}
-  .stat .num{{font-size:28px;font-weight:800}}
-  .stat .lbl{{color:#777;font-size:13px}}
-  .card{{background:#fff;border:1px solid #e8e6ee;border-radius:12px;padding:18px 22px;margin-bottom:16px}}
-  .card-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}}
-  .title{{font-size:17px;font-weight:700}}
-  .meta{{margin-top:6px;font-size:13px;color:#555;display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
-  .approve{{font-size:12px;color:#555;text-align:right;min-width:160px}}
-  code{{background:#f1eef8;padding:1px 6px;border-radius:5px;font-size:12px}}
-  details{{margin-top:12px}}
-  summary{{cursor:pointer;color:#7c3aed;font-weight:600;font-size:14px}}
-  .article{{border-top:1px solid #eee;margin-top:12px;padding-top:12px}}
-  .article table{{border-collapse:collapse;width:100%;margin:10px 0}}
-  .article th,.article td{{border:1px solid #ddd;padding:6px 10px;font-size:14px;text-align:left}}
-  .article pre{{background:#f6f8fa;padding:12px;border-radius:8px;overflow:auto;font-size:12px}}
-  .article h1{{font-size:22px;color:#1a1a1a}} .article h2{{font-size:18px;margin-top:20px}}
-  .pub-btn{{background:#7c3aed;color:#fff;border:none;border-radius:8px;padding:6px 12px;
-    font-size:13px;font-weight:700;cursor:pointer}}
-  .pub-btn:hover{{background:#5b21b6}} .pub-btn:disabled{{opacity:.6;cursor:default}}
-  .gen-btn{{background:#7c3aed;color:#fff;border:none;border-radius:8px;padding:7px 12px;
-    font-size:13px;font-weight:700;cursor:pointer}}
-  .gen-btn:hover{{opacity:.9}} .gen-btn:disabled{{opacity:.6;cursor:default}}
-  .sns-nav{{position:fixed;top:16px;right:16px;display:flex;gap:8px;z-index:50}}
-  .sns-ico{{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
-    justify-content:center;color:#fff;font-weight:800;font-size:15px;text-decoration:none;
-    box-shadow:0 1px 4px rgba(0,0,0,.25)}}
-  .sns-ico:hover{{opacity:.85}}
-  .howto{{background:#ede9fe;border:1px solid #d8d0f0;color:#5b21b6;padding:10px 14px;
-    border-radius:10px;font-size:14px;margin:0 0 20px}}
+  :root{{
+    /* spacing — 8px grid */
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+    /* radius */
+    --r-sm:6px; --r-md:10px; --r-lg:14px; --r-pill:999px;
+    /* color */
+    --violet:#7c3aed; --violet-dark:#5b21b6; --violet-tint:#f3f0f9; --violet-soft:#ede9fe;
+    --ink:#1a1730; --muted:#6b6b76; --faint:#9b9aa6;
+    --line:#ebe9f1; --bg:#faf9fc; --surface:#fff;
+    --shadow:0 1px 3px rgba(20,12,48,.05);
+    --shadow-lg:0 6px 22px rgba(124,58,237,.09);
+  }}
+  *{{box-sizing:border-box}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard',sans-serif;
+    background:var(--bg);color:var(--ink);margin:0;padding:var(--s6);line-height:1.6;
+    -webkit-font-smoothing:antialiased;letter-spacing:-.01em}}
+  .wrap{{max-width:960px;margin:0 auto}}
+  h1{{font-size:23px;font-weight:700;margin:0 0 var(--s1);color:var(--ink);
+    display:flex;align-items:center;gap:var(--s2);letter-spacing:-.02em;
+    padding-right:200px;min-height:36px}}
+  .sub{{color:var(--muted);margin:0 0 var(--s4);font-size:14px}}
+  .summary{{display:flex;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s5)}}
+  .stat{{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s4) var(--s5);flex:1;min-width:120px;box-shadow:var(--shadow)}}
+  .stat .num{{font-size:30px;font-weight:700;line-height:1.1;letter-spacing:-.03em}}
+  .stat .lbl{{color:var(--faint);font-size:12px;font-weight:500;margin-top:var(--s1)}}
+  .card{{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:var(--s5);margin-bottom:var(--s4);box-shadow:var(--shadow)}}
+  .card-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s4)}}
+  .title{{font-size:16px;font-weight:600;display:flex;align-items:center;gap:var(--s2);letter-spacing:-.01em}}
+  .meta{{margin-top:var(--s2);font-size:12px;color:var(--muted);display:flex;gap:var(--s2);
+    align-items:center;flex-wrap:wrap}}
+  .approve{{font-size:12px;color:var(--muted);text-align:right;min-width:160px}}
+  code{{background:var(--violet-tint);color:var(--violet-dark);padding:2px 6px;
+    border-radius:var(--r-sm);font-size:12px}}
+  details{{margin-top:var(--s3)}}
+  summary{{cursor:pointer;color:var(--violet);font-weight:500;font-size:13px}}
+  .article{{border-top:1px solid var(--line);margin-top:var(--s3);padding-top:var(--s3)}}
+  .article table{{border-collapse:collapse;width:100%;margin:var(--s3) 0}}
+  .article th,.article td{{border:1px solid var(--line);padding:var(--s2) var(--s3);font-size:14px;text-align:left}}
+  .article pre{{background:#f7f6fb;padding:var(--s3);border-radius:var(--r-sm);overflow:auto;font-size:12px}}
+  .article h1{{font-size:21px;color:var(--ink)}} .article h2{{font-size:17px;margin-top:var(--s5)}}
+  /* buttons */
+  .pub-btn,.gen-btn{{background:var(--violet);color:#fff;border:none;border-radius:var(--r-sm);
+    padding:var(--s2) var(--s3);font-size:12px;font-weight:600;cursor:pointer;
+    display:inline-flex;align-items:center;gap:5px;transition:background .15s,transform .05s}}
+  .pub-btn:hover,.gen-btn:hover{{background:var(--violet-dark)}}
+  .pub-btn:active,.gen-btn:active{{transform:translateY(1px)}}
+  .pub-btn:disabled,.gen-btn:disabled{{opacity:.55;cursor:default}}
+  .posted-tag{{display:inline-flex;align-items:center;gap:4px;color:#15803d;font-weight:600;font-size:12px}}
+  /* generate form */
+  .gen-form{{margin:var(--s3) 0;padding:var(--s4);background:var(--violet-tint);
+    border:1px solid var(--violet-soft);border-radius:var(--r-md)}}
+  .gen-form-title{{font-weight:600;font-size:14px;margin-bottom:var(--s3);
+    display:flex;align-items:center;gap:6px;color:var(--ink)}}
+  .gen-input{{width:62%;min-width:240px;padding:var(--s2) var(--s3);border:1px solid #d9cdf2;
+    border-radius:var(--r-sm);font-size:14px;outline:none}}
+  .gen-input:focus{{border-color:var(--violet)}}
+  .gen-btn-row{{margin-top:var(--s3);display:flex;gap:var(--s2);flex-wrap:wrap}}
+  .gen-btn{{background:#fff;color:var(--violet-dark);border:1px solid #d9cdf2}}
+  .gen-btn:hover{{background:#fff;border-color:var(--violet);color:var(--violet)}}
+  .gen-btn-primary{{background:var(--violet);color:#fff;border-color:var(--violet)}}
+  .gen-btn-primary:hover{{background:var(--violet-dark);color:#fff}}
+  .gen-form-hint{{font-size:12px;color:var(--faint);margin-top:var(--s2)}}
+  /* calendar widget */
+  .cal-widget{{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:var(--s5);margin-bottom:var(--s5);box-shadow:var(--shadow-lg)}}
+  .cal-head{{display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:var(--s4);flex-wrap:wrap;gap:var(--s2)}}
+  .cal-title{{font-size:16px;font-weight:600;display:flex;align-items:center;gap:var(--s2)}}
+  .cal-sub{{font-size:12px;color:var(--faint);margin-top:2px}}
+  .lang-tabs{{display:flex;gap:var(--s1);background:var(--violet-tint);padding:3px;border-radius:var(--r-sm)}}
+  .lang-btn{{background:transparent;color:var(--muted);border:none;border-radius:var(--r-sm);
+    padding:5px 12px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}}
+  .lang-btn.active{{background:var(--surface);color:var(--violet-dark);font-weight:600;box-shadow:var(--shadow)}}
+  .cal-body{{display:flex;gap:var(--s5);align-items:flex-start;flex-wrap:wrap}}
+  .cal-grid-col{{flex:2;min-width:0;overflow-x:auto}}
+  .cal-grid{{border-collapse:separate;border-spacing:0;width:100%;min-width:560px}}
+  .cal-golden{{margin-top:var(--s3)}}
+  .cal-golden summary{{font-size:13px}}
+  .cal-events{{flex:1;min-width:200px;max-width:280px;border-left:1px solid var(--line);padding-left:var(--s4)}}
+  .cal-events-title{{font-size:13px;font-weight:600;color:var(--violet-dark);
+    margin-bottom:var(--s3);display:flex;align-items:center;gap:6px}}
+  .cal-events-foot{{font-size:11px;color:var(--faint);margin-top:var(--s2)}}
+  /* sns nav */
+  .sns-nav{{position:fixed;top:var(--s4);right:var(--s4);display:flex;gap:var(--s2);z-index:50}}
+  .sns-ico{{width:32px;height:32px;border-radius:var(--r-sm);display:flex;align-items:center;
+    justify-content:center;color:#fff;text-decoration:none;box-shadow:var(--shadow);transition:transform .12s}}
+  .sns-ico:hover{{transform:translateY(-2px)}}
+  .howto{{background:var(--violet-soft);color:var(--violet-dark);padding:var(--s3) var(--s4);
+    border-radius:var(--r-md);font-size:13px;margin:0 0 var(--s5);display:flex;align-items:center;gap:var(--s2)}}
+  .section-h{{font-size:16px;font-weight:600;margin:var(--s5) 0 var(--s3);
+    display:flex;align-items:center;gap:var(--s2);letter-spacing:-.01em}}
+  @media (max-width:760px){{
+    body{{padding:var(--s4)}}
+    .wrap{{padding-top:52px}}
+    h1{{font-size:19px;padding-right:0}}
+    .card,.cal-widget{{padding:var(--s4)}}
+    .stat{{min-width:calc(50% - var(--s2))}}
+    .sns-ico{{width:28px;height:28px}}
+  }}
 </style></head>
 <body>
 <div class="sns-nav">
-  <a class="sns-ico" style="background:#dc2743;font-size:12px" href="https://www.instagram.com" target="_blank" title="Instagram으로 이동">IG</a>
-  <a class="sns-ico" style="background:#111" href="https://www.threads.net" target="_blank" title="Threads로 이동">@</a>
-  <a class="sns-ico" style="background:#1877f2" href="https://www.facebook.com" target="_blank" title="Facebook으로 이동">f</a>
-  <a class="sns-ico" style="background:#ff0000;font-size:18px" href="https://www.youtube.com" target="_blank" title="YouTube로 이동">▶</a>
+  <a class="sns-ico" style="background:#e1306c" href="https://www.instagram.com" target="_blank" title="Instagram">{_brand('instagram')}</a>
+  <a class="sns-ico" style="background:#000" href="https://www.threads.net" target="_blank" title="Threads">{_brand('threads')}</a>
+  <a class="sns-ico" style="background:#1877f2" href="https://www.facebook.com" target="_blank" title="Facebook">{_brand('facebook')}</a>
+  <a class="sns-ico" style="background:#ff0000" href="https://www.youtube.com" target="_blank" title="YouTube">{_brand('youtube')}</a>
 </div>
 <div class="wrap">
-  <h1>🤖 Wehome AI Marketing Engine</h1>
+  <h1>{_icon('sparkles', 22, '#7c3aed')} Wehome AI Marketing Engine</h1>
   <p class="sub">콘텐츠 자동 생성 현황 · 생성·검수 자동 / 사람 승인 후 발행</p>
-  <p class="howto">👉 본문만 복사해서 게시글을 작성하면 됩니다. (오른쪽 위 아이콘 = 해당 SNS로 이동)</p>
+  <p class="howto">{_icon('arrow-right', 16)} 본문만 복사해서 게시글을 작성하면 됩니다. (오른쪽 위 아이콘 = 해당 SNS로 이동)</p>
   <div class="summary">
     <div class="stat"><div class="num">{n}</div><div class="lbl">총 생성</div></div>
     <div class="stat"><div class="num">{approved}</div><div class="lbl">발행 승인됨</div></div>
-    <div class="stat"><div class="num" style="color:#0a7d28">{passes}</div><div class="lbl">검수 PASS</div></div>
-    <div class="stat"><div class="num" style="color:#8a6d00">{warns}</div><div class="lbl">검수 WARN</div></div>
-    <div class="stat"><div class="num" style="color:#b00020">{fails}</div><div class="lbl">검수 FAIL</div></div>
+    <div class="stat"><div class="num" style="color:#15803d">{passes}</div><div class="lbl">검수 PASS</div></div>
+    <div class="stat"><div class="num" style="color:#92710a">{warns}</div><div class="lbl">검수 WARN</div></div>
+    <div class="stat"><div class="num" style="color:#a8253a">{fails}</div><div class="lbl">검수 FAIL</div></div>
   </div>
   {_calendar_panel()}
   {_social_panel()}
-  <h2 style="font-size:18px;margin:24px 0 12px">📝 생성된 콘텐츠</h2>
+  <h2 class="section-h">{_icon('file-text', 18, '#7c3aed')} 생성된 콘텐츠</h2>
   {''.join(cards)}
 </div>
 <script>
@@ -382,7 +476,7 @@ async function pub(id, btn){{
   try {{
     const r = await fetch('/api/social/publish?id=' + encodeURIComponent(id));
     const j = await r.json();
-    if (j.status === 'posted') {{ btn.textContent = '🚀 게시됨'; }}
+    if (j.status === 'posted') {{ btn.textContent = '✓ 게시됨'; }}
     else if (j.status === 'dry-run') {{ btn.disabled = false; btn.textContent = old;
       alert('dry-run (실제 게시 안 됨): ' + (j.reason || '') + '\\n.env에 토큰을 넣으면 실게시됩니다.'); }}
     else {{ btn.textContent = old; btn.disabled = false; alert('오류: ' + (j.error || j.msg || '실패')); }}
