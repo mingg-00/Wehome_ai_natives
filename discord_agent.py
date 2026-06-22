@@ -284,7 +284,8 @@ async def on_reaction_add(reaction, user):
     if user.bot or user.id == client.user.id:
         return
 
-    if str(reaction.emoji) != "👍":
+    emoji = str(reaction.emoji)
+    if emoji not in ("👍", "📅"):
         return
 
     message_id = reaction.message.id
@@ -292,16 +293,13 @@ async def on_reaction_add(reaction, user):
     if message_id not in pending_posts:
         return
 
-    emoji = str(reaction.emoji)
-
     # 📅: 골든타임 예약 (즉시 게시 안 함, APPROVED만 설정)
     if emoji == "📅":
         data, _ = pending_posts.pop(message_id)
         ids = data["ids"]
         lines = ["📅 **골든타임 예약 완료**\n"]
         for item_id in ids:
-            result = social.approve(item_id)
-            # scheduled_at은 이미 enqueue 시 골든타임으로 설정돼 있음
+            social.approve(item_id)
             q = {it["id"]: it for it in social.queue()}
             it = q.get(item_id, {})
             plat = it.get("platform", "")
@@ -313,8 +311,6 @@ async def on_reaction_add(reaction, user):
         return
 
     # 👍: 즉시 게시
-    if emoji != "👍":
-        return
 
     data, _ = pending_posts.pop(message_id)
     ids = data["ids"]
