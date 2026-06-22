@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 from engine import social, governance, schedule as sched, events as evt, multilang
+from engine import trends as trend_engine, property_monitor as prop_mon
 
 
 def _friendly_error(error: str) -> str:
@@ -103,6 +104,8 @@ async def _auto_publish_loop():
                 await ch.send(msg)
 
     await _check_seasonal_campaigns()
+    await _check_trends()
+    await _check_new_properties()
 
 
 async def _check_seasonal_campaigns():
@@ -159,6 +162,97 @@ async def _check_seasonal_campaigns():
 
         notify_lines.append("\n👍 개별 게시물 승인 후 골든타임에 자동 발행됩니다.")
         msg = "\n".join(notify_lines)
+        print(msg)
+        if ch:
+            await ch.send(msg)
+
+
+async def _check_trends():
+    """Google Trends 감지 — 위홈 연관 트렌드 있으면 포스팅 초안 생성 (하루 1회)."""
+    global _campaign_triggered_date
+    KST = _dt.timezone(_dt.timedelta(hours=9))
+    today = _dt.datetime.now(KST).strftime("%Y-%m-%d")
+    # 시즌 캠페인과 같은 날짜 가드 공유 (이미 오늘 실행됐으면 스킵)
+    if getattr(_check_trends, "_last_date", "") == today:
+        return
+    _check_trends._last_date = today
+
+    print("[Trends] Google Trends 체크 중...")
+    topics = trend_engine.get_campaign_topics(max_topics=3)
+    if not topics:
+        return
+
+    ch = client.get_channel(NOTIFY_CHANNEL_ID) if NOTIFY_CHANNEL_ID else None
+    platforms = ["threads", "facebook", "instagram"]
+
+    for topic in topics:
+        lines = [
+            f"🔥 **트렌드 캠페인 자동 생성** — `{topic['keyword']}`",
+            f"📍 연관: {topic.get('matched_location') or topic.get('matched_travel')}",
+            "",
+        ]
+        for platform in platforms:
+            post = social.generate_posts(topic["topic_ko"], [platform]).get(platform)
+            if not post:
+                continue
+            item = social.enqueue(
+                platform=platform,
+                topic=topic["topic_ko"],
+                post=post,
+                governance="PASS",
+                scheduled_at=sched.next_golden_time(platform),
+            )
+            lines.append(f"  • {platform}: {item['id']}")
+
+        lines.append("\n👍 승인 후 골든타임에 자동 발행됩니다.")
+        msg = "\n".join(lines)
+        print(msg)
+        if ch:
+            await ch.send(msg)
+
+
+async def _check_new_properties():
+    """신규 숙소 감지 → 맞춤 포스팅 자동 생성 (하루 1회)."""
+    KST = _dt.timezone(_dt.timedelta(hours=9))
+    today = _dt.datetime.now(KST).strftime("%Y-%m-%d")
+    if getattr(_check_new_properties, "_last_date", "") == today:
+        return
+    _check_new_properties._last_date = today
+
+    print("[PropertyMonitor] 신규 숙소 체크 중...")
+    new_props = prop_mon.detect_new_properties(max_new=3)
+    if not new_props:
+        return
+
+    ch = client.get_channel(NOTIFY_CHANNEL_ID) if NOTIFY_CHANNEL_ID else None
+    platforms = ["threads", "facebook", "instagram"]
+
+    for prop in new_props:
+        lines = [
+            f"🏠 **신규 숙소 감지** — {prop.title}",
+            f"📍 지역: {prop.region_ko} | 🔗 {prop.room_url}",
+            "",
+        ]
+        for platform in platforms:
+            post = social.generate_posts(
+                prop.topic_ko, [platform],
+                source=f"숙소 URL: {prop.room_url}\n이미지: {prop.image_url}"
+            ).get(platform)
+            if not post:
+                continue
+            if prop.image_url and platform == "instagram":
+                post["image_url"] = prop.image_url
+            item = social.enqueue(
+                platform=platform,
+                topic=prop.topic_ko,
+                post=post,
+                governance="PASS",
+                scheduled_at=sched.next_golden_time(platform),
+            )
+            lines.append(f"  • {platform}: {item['id']}")
+
+        lines.append("\n👍 승인 후 골든타임에 자동 발행됩니다.")
+        msg = "\n".join(lines)
         print(msg)
         if ch:
             await ch.send(msg)
