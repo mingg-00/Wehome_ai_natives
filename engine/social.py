@@ -22,7 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import brand
+from . import brand, utm
 from .config import OUTPUT_DIR, settings
 from .llm import chat_json
 
@@ -129,6 +129,7 @@ def _save(items: list[dict]) -> None:
 def enqueue(platform: str, topic: str, post: dict, governance: str,
             scheduled_at: str | None, video_path: str | None = None) -> dict:
     items = _load()
+    post = utm.inject(platform, post, topic)   # UTM 링크 자동 주입
     item = {
         "id": f"sp-{datetime.datetime.now():%Y%m%d%H%M%S}-{platform}",
         "platform": platform, "topic": topic, "post": post,
