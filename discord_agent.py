@@ -58,8 +58,10 @@ client = discord.Client(intents=intents)
 # Discord 메시지ID -> (SNS 큐 데이터, 생성 시각)
 # TTL 1시간 — 반응 없이 방치된 항목 자동 제거
 import time as _time
+import datetime as _dt
 _PENDING_TTL = 3600
 pending_posts: dict[int, tuple[dict, float]] = {}
+_campaign_triggered_date: str = ""  # 날짜별 중복 트리거 방지
 
 
 def _cleanup_pending():
@@ -95,7 +97,14 @@ async def _auto_publish_loop():
 
 
 async def _check_seasonal_campaigns():
-    """D-14 이벤트가 있으면 다국어 캠페인 초안을 채널에 알림."""
+    """D-14 이벤트가 있으면 다국어 캠페인 초안을 채널에 알림 (하루 1회)."""
+    global _campaign_triggered_date
+    KST = _dt.timezone(_dt.timedelta(hours=9))
+    today = _dt.datetime.now(KST).strftime("%Y-%m-%d")
+    if _campaign_triggered_date == today:
+        return  # 오늘 이미 체크했으면 스킵
+    _campaign_triggered_date = today
+
     due = evt.due_campaigns()
     if not due:
         return
