@@ -1,0 +1,44 @@
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# Local Codex/agent workspace state
+.agents/
+.codex/
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Generated media, crawl results, and cache files
+output/
+*.mp3
+*.mp4
+*.wav
+*.m4a
+*.aac
+*.ogg
+*.flac
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
