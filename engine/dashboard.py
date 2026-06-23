@@ -383,6 +383,7 @@ def build() -> str:
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wehome AI Marketing Engine</title>
+<meta http-equiv="refresh" content="30">
 <style>
   :root{{
     /* spacing — 8px grid */

@@ -196,7 +196,6 @@ async def _check_seasonal_campaigns():
 
 async def _check_trends():
     """Google Trends 감지 — 위홈 연관 트렌드 있으면 포스팅 초안 생성 (하루 1회)."""
-    global _campaign_triggered_date
     KST = _dt.timezone(_dt.timedelta(hours=9))
     today = _dt.datetime.now(KST).strftime("%Y-%m-%d")
     # 시즌 캠페인과 같은 날짜 가드 공유 (이미 오늘 실행됐으면 스킵)

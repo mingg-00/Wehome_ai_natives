@@ -180,7 +180,11 @@ def publish_one(item_id: str) -> dict:
             it["result"] = res
             if res.get("status") == "posted":
                 it["status"] = "POSTED"
-                it["posted_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+                it["posted_at"] = datetime.datetime.now(
+                    datetime.timezone(datetime.timedelta(hours=9))
+                ).isoformat(timespec="seconds")
+                _alog.append("post", f"{it['platform'].upper()} 게시 완료 (수동)",
+                             platform=it["platform"], detail=it.get("topic", "")[:80])
             _save(items)
             return res
     return {"status": "error", "error": f"{item_id} 없음"}
