@@ -64,9 +64,9 @@ def _brand(name: str, size: int = 17) -> str:
 
 _BADGE = {
     "APPROVED": ("#15803d", "#eafaf0"),
-    "DRAFT": ("#92710a", "#fbf4dd"),
+    "DRAFT": ("#6d5c00", "#f5eed6"),
     "PASS": ("#15803d", "#eafaf0"),
-    "WARN": ("#92710a", "#fbf4dd"),
+    "WARN": ("#7a5f00", "#f7efc5"),
     "FAIL": ("#a8253a", "#fbe9ec"),
 }
 
@@ -120,10 +120,15 @@ def _social_panel() -> str:
                     f"<td>{it['text'][:140]}</td><td style='white-space:nowrap'>{btn}</td></tr>")
     posted = sum(1 for it in q if it["status"] == "POSTED")
     appr = sum(1 for it in q if it["status"] == "APPROVED")
+    empty_state = f"""
+      <div class="empty-state">
+        {_icon('send', 32, '#c4b5f9', 1.5)}
+        <div class="empty-title">아직 생성된 게시물이 없습니다</div>
+        <div class="empty-sub">위 입력칸에 주제를 적고 플랫폼을 누르면<br>AI가 자동으로 초안을 작성해 줍니다.</div>
+      </div>"""
     table = (f"""<details open><summary>큐 보기 ({len(q)}건)</summary><div class="article"><table>
         <tr><th>플랫폼</th><th>상태/검수</th><th>문안</th><th>게시</th></tr>{''.join(rows)}
-      </table></div></details>""" if q else
-             '<p class="meta" style="color:#999">아직 생성된 글이 없습니다 — 위에서 주제를 입력하고 플랫폼을 누르세요.</p>')
+      </table></div></details>""" if q else empty_state)
     return f"""<div class="card">
       <div class="title">{_icon('smartphone', 19, '#7c3aed')} SNS 자동 포스팅 (자사 계정)</div>
       <div class="meta">총 {len(q)}건 · 승인 {appr} · 게시 {posted} · "지금 게시" = 승인+즉시 게시(토큰 없으면 dry-run)</div>
@@ -345,15 +350,14 @@ def build() -> str:
   .summary{{display:flex;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s5)}}
   .stat{{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
     padding:var(--s4) var(--s5);flex:1;min-width:120px;box-shadow:var(--shadow)}}
-  .stat .num{{font-size:30px;font-weight:700;line-height:1.1;letter-spacing:-.03em}}
-  .stat .lbl{{color:var(--faint);font-size:12px;font-weight:500;margin-top:var(--s1)}}
   .card{{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
     padding:var(--s5);margin-bottom:var(--s4);box-shadow:var(--shadow)}}
   .card-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s4)}}
-  .title{{font-size:16px;font-weight:600;display:flex;align-items:center;gap:var(--s2);letter-spacing:-.01em}}
+  .title{{font-size:16px;font-weight:700;display:flex;align-items:center;gap:var(--s2);
+    letter-spacing:-.02em;color:var(--ink)}}
   .meta{{margin-top:var(--s2);font-size:12px;color:var(--muted);display:flex;gap:var(--s2);
-    align-items:center;flex-wrap:wrap}}
-  .approve{{font-size:12px;color:var(--muted);text-align:right;min-width:160px}}
+    align-items:center;flex-wrap:wrap;font-weight:400}}
+  .approve{{font-size:12px;color:var(--faint);text-align:right;min-width:160px;font-weight:400}}
   code{{background:var(--violet-tint);color:var(--violet-dark);padding:2px 6px;
     border-radius:var(--r-sm);font-size:12px}}
   details{{margin-top:var(--s3)}}
@@ -414,6 +418,15 @@ def build() -> str:
     border-radius:var(--r-md);font-size:13px;margin:0 0 var(--s5);display:flex;align-items:center;gap:var(--s2)}}
   .section-h{{font-size:16px;font-weight:600;margin:var(--s5) 0 var(--s3);
     display:flex;align-items:center;gap:var(--s2);letter-spacing:-.01em}}
+  /* empty state */
+  .empty-state{{display:flex;flex-direction:column;align-items:center;gap:var(--s3);
+    padding:var(--s6) var(--s5);border:2px dashed var(--line);border-radius:var(--r-md);
+    background:var(--violet-tint);margin-top:var(--s3);text-align:center}}
+  .empty-title{{font-size:15px;font-weight:600;color:var(--violet-dark)}}
+  .empty-sub{{font-size:13px;color:var(--faint);line-height:1.7}}
+  /* stat numbers — typography weight tiers */
+  .stat .num{{font-size:30px;font-weight:800;line-height:1.1;letter-spacing:-.04em}}
+  .stat .lbl{{color:var(--faint);font-size:11px;font-weight:500;margin-top:var(--s1);text-transform:uppercase;letter-spacing:.04em}}
   @media (max-width:760px){{
     body{{padding:var(--s4)}}
     .wrap{{padding-top:52px}}
@@ -438,7 +451,7 @@ def build() -> str:
     <div class="stat"><div class="num">{n}</div><div class="lbl">총 생성</div></div>
     <div class="stat"><div class="num">{approved}</div><div class="lbl">발행 승인됨</div></div>
     <div class="stat"><div class="num" style="color:#15803d">{passes}</div><div class="lbl">검수 PASS</div></div>
-    <div class="stat"><div class="num" style="color:#92710a">{warns}</div><div class="lbl">검수 WARN</div></div>
+    <div class="stat"><div class="num" style="color:#7a5f00">{warns}</div><div class="lbl">검수 WARN</div></div>
     <div class="stat"><div class="num" style="color:#a8253a">{fails}</div><div class="lbl">검수 FAIL</div></div>
   </div>
   {_calendar_panel()}
