@@ -119,7 +119,12 @@ def _social_panel() -> str:
       </table></div></details>""" if q else empty_state)
     return f"""<div class="card">
       <div class="title">{_icon('smartphone', 19, '#7c3aed')} SNS 자동 포스팅 (자사 계정)</div>
-      <div class="meta">총 {len(q)}건 · 승인 {appr} · 게시 {posted} · "지금 게시" = 승인+즉시 게시(토큰 없으면 dry-run)</div>
+      <div class="meta">총 {len(q)}건 · 승인 대기 {appr} · 게시 완료 {posted}
+        <span style="margin-left:var(--s3);background:#f1f5f9;color:#64748b;font-size:11px;
+          padding:2px 8px;border-radius:var(--r-pill)">
+          X/Twitter 7/19 재개 예정 · Pinterest 심사 중
+        </span>
+      </div>
       {_GEN_FORM}
       {table}
     </div>"""
