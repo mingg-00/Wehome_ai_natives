@@ -190,6 +190,7 @@ def publish(due_only: bool = False) -> list[dict]:
     """APPROVED 항목을 게시(실제 or dry-run). due_only면 예약시간 도래분만."""
     items = _load()
     results = []
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec="seconds")
     for it in items:
         if it["status"] != "APPROVED":
             continue

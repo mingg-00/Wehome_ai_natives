@@ -9,8 +9,7 @@ from __future__ import annotations
 import json
 import re
 import urllib.request
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 
 from .config import OUTPUT_DIR
 
