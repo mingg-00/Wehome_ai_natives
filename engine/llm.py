@@ -32,7 +32,10 @@ def chat(system_prompt: str, user_prompt: str, temperature: float = 0.3) -> str 
         ],
         temperature=temperature,
     )
-    return resp.choices[0].message.content.strip()
+    if not resp.choices:
+        return None
+    content = resp.choices[0].message.content
+    return content.strip() if content else None
 
 
 def chat_with_tools(system_prompt: str, user_prompt: str, tools: list,
@@ -50,6 +53,8 @@ def chat_with_tools(system_prompt: str, user_prompt: str, tools: list,
     for _ in range(max_rounds):
         resp = client.chat.completions.create(
             model=settings.chat_model, messages=messages, tools=tools, temperature=0.3)
+        if not resp.choices:
+            return {"answer": "", "used_tools": used}
         msg = resp.choices[0].message
         if not msg.tool_calls:
             return {"answer": msg.content or "", "used_tools": used}
@@ -68,6 +73,8 @@ def chat_with_tools(system_prompt: str, user_prompt: str, tools: list,
                                                    ensure_ascii=False)})
     resp = client.chat.completions.create(
         model=settings.chat_model, messages=messages, temperature=0.3)
+    if not resp.choices:
+        return {"answer": "", "used_tools": used}
     return {"answer": resp.choices[0].message.content or "", "used_tools": used}
 
 
@@ -84,4 +91,9 @@ def chat_json(system_prompt: str, user_prompt: str) -> dict | None:
         temperature=0.4,
         response_format={"type": "json_object"},
     )
-    return json.loads(resp.choices[0].message.content)
+    if not resp.choices:
+        return None
+    content = resp.choices[0].message.content
+    if not content:
+        return None
+    return json.loads(content)

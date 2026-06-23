@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>me.wehome.bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/anaconda3/bin/python</string>
+        <string>/Users/gimminji/현장실습/wehome-marketing-engine/discord_agent.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/gimminji/현장실습/wehome-marketing-engine</string>
+
+    <!-- 크래시 시 자동 재시작 -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 로그인 시 자동 시작 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 표준 출력 로그 -->
+    <key>StandardOutPath</key>
+    <string>/Users/gimminji/현장실습/wehome-marketing-engine/logs/bot.log</string>
+
+    <!-- 에러 로그 -->
+    <key>StandardErrorPath</key>
+    <string>/Users/gimminji/현장실습/wehome-marketing-engine/logs/bot.error.log</string>
+
+    <!-- 크래시 후 10초 대기 후 재시작 (루프 방지) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

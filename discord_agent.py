@@ -110,8 +110,102 @@ def _cleanup_pending():
 # ---------------------------------------------------------------------------
 # 백그라운드: 골든타임 정시에만 실행 (KST 9·11·12·13·15·18·19·20·21시)
 # ---------------------------------------------------------------------------
+def _cleanup_old_uploads(max_age_hours: int = 48) -> None:
+    """안전망: uploads/ 에서 48시간 초과 파일 삭제."""
+    uploads_dir = Path("uploads")
+    if not uploads_dir.exists():
+        return
+    cutoff = _time.time() - max_age_hours * 3600
+    for f in uploads_dir.iterdir():
+        if f.is_file() and f.stat().st_mtime < cutoff:
+            try:
+                f.unlink()
+                print(f"[cleanup] 오래된 업로드 파일 삭제: {f.name}")
+            except Exception as e:
+                print(f"[cleanup] 파일 삭제 실패 {f.name}: {e}")
+
+
+async def _check_token_expiry() -> None:
+    """META 토큰 만료 확인 — D-14 이하 시 자동 갱신 시도 (하루 1회)."""
+    KST = _dt.timezone(_dt.timedelta(hours=9))
+    today = _dt.datetime.now(KST).strftime("%Y-%m-%d")
+    if getattr(_check_token_expiry, "_last_date", "") == today:
+        return
+    _check_token_expiry._last_date = today
+
+    import urllib.request as _urlreq
+    import urllib.parse as _urlparse
+    from engine.config import settings
+
+    token = settings.meta_access_token
+    app_id = settings.fb_app_id
+    app_secret = settings.fb_app_secret
+    if not (token and app_id and app_secret):
+        return
+
+    ch = client.get_channel(NOTIFY_CHANNEL_ID) if NOTIFY_CHANNEL_ID else None
+
+    try:
+        qs = _urlparse.urlencode({
+            "input_token": token,
+            "access_token": f"{app_id}|{app_secret}",
+        })
+        with _urlreq.urlopen(
+            f"https://graph.facebook.com/debug_token?{qs}", timeout=10
+        ) as r:
+            data = json.loads(r.read().decode()).get("data", {})
+        expires_at = data.get("expires_at", 0)
+        if not expires_at:
+            return
+        expires_dt = _dt.datetime.fromtimestamp(expires_at, tz=KST)
+        days_left = (expires_dt.date() - _dt.datetime.now(KST).date()).days
+
+        if days_left > 14:
+            return  # 여유 있음
+
+        expire_str = f"`{expires_dt.strftime('%Y-%m-%d')}` (D-{days_left})"
+
+        if days_left <= 0:
+            # 이미 만료 — 자동 갱신 불가, 즉각 수동 조치 필요
+            msg = (
+                f"🚨 **META 토큰 만료됨 — 즉각 수동 조치 필요**\n"
+                f"만료일: {expire_str}\n"
+                f"→ Meta 개발자 콘솔 → API 탐색기에서 새 토큰 발급 후 `.env` 업데이트"
+            )
+            print(msg)
+            if ch:
+                await ch.send(msg)
+            return
+
+        # D-14 이하 & 아직 유효 — 자동 갱신 시도
+        print(f"[TokenCheck] META 토큰 {expire_str} — 자동 갱신 시도 중...")
+        ok = social.refresh_meta_tokens()
+
+        if ok:
+            msg = (
+                f"🔄 **META 토큰 자동 갱신 완료**\n"
+                f"갱신 전 만료 예정: {expire_str}\n"
+                f"→ 새 60일 토큰으로 교체됨. `.env` 자동 저장 완료."
+            )
+        else:
+            msg = (
+                f"⚠️ **META 토큰 자동 갱신 실패 — 수동 조치 필요**\n"
+                f"만료일: {expire_str}\n"
+                f"→ Meta 개발자 콘솔 → API 탐색기에서 새 토큰 발급 후\n"
+                f"   `.env`의 `META_ACCESS_TOKEN` 업데이트 필요"
+            )
+        print(msg)
+        if ch:
+            await ch.send(msg)
+
+    except Exception as e:
+        print(f"[TokenCheck] 토큰 만료 확인 실패: {e}")
+
+
 @tasks.loop(time=_golden_times)
 async def _auto_publish_loop():
+    _cleanup_old_uploads()
+    social.prune_old_posted()
     results = social.publish(due_only=True)
     if results:
         lines = ["⏰ **예약 게시 자동 실행**\n"]
@@ -120,6 +214,12 @@ async def _auto_publish_loop():
                 lines.append(f"✅ {r['platform']} 게시 완료 (id={r.get('id')})")
             elif r["status"] == "dry-run":
                 lines.append(f"👀 {r['platform']} dry-run — {r.get('reason','')}")
+            elif r["status"] == "failed":
+                lines.append(
+                    f"🚨 {r['platform']} 게시 포기 ({r.get('retry_count',0)}회 재시도 초과)\n"
+                    f"   오류: {r.get('error','')[:80]}\n"
+                    f"   → 대시보드에서 수동 재시도 또는 항목 확인 필요"
+                )
             else:
                 lines.append(f"❌ {r['platform']} 오류: {r.get('error','')}")
         msg = "\n".join(lines)
@@ -129,6 +229,7 @@ async def _auto_publish_loop():
             if ch:
                 await ch.send(msg)
 
+    await _check_token_expiry()
     await _check_seasonal_campaigns()
     await _check_trends()
     await _check_new_properties()

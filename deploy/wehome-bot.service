@@ -1,0 +1,27 @@
+[Unit]
+Description=Wehome SNS Marketing Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wehome
+WorkingDirectory=/opt/wehome-marketing-engine
+
+# .env는 load_dotenv()로 코드 내에서 로드됨
+ExecStart=/opt/wehome-marketing-engine/venv/bin/python discord_agent.py
+
+# 크래시 시 10초 후 자동 재시작
+Restart=always
+RestartSec=10
+
+# 로그는 journald로 수집 (journalctl -u wehome-bot -f)
+StandardOutput=journal
+StandardError=journal
+
+# 프로세스 환경 격리 (보안)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

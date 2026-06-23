@@ -63,6 +63,7 @@ def _brand(name: str, size: int = 17) -> str:
 _BADGE = {
     "APPROVED": ("#15803d", "#eafaf0"),
     "DRAFT": ("#6d5c00", "#f5eed6"),
+    "FAILED": ("#a8253a", "#fbe9ec"),
     "PASS": ("#15803d", "#eafaf0"),
     "WARN": ("#7a5f00", "#f7efc5"),
     "FAIL": ("#a8253a", "#fbe9ec"),
@@ -99,6 +100,13 @@ def _social_panel() -> str:
         gov = _badge(it["governance"])
         if it["status"] == "POSTED":
             btn = f"<span class='posted-tag'>{_icon('check', 13)} 게시됨</span>"
+        elif it["status"] == "FAILED":
+            cnt = it.get("retry_count", 0)
+            err = (it.get("last_error") or "")[:55]
+            btn = (f"<div style='font-size:11px;color:#a8253a;font-weight:600'>❌ {cnt}회 실패</div>"
+                   f"<div style='font-size:10px;color:#888;margin-bottom:4px'>{err}</div>"
+                   f"<button class='pub-btn' onclick=\"pub('{it['id']}', this)\" "
+                   f"style='font-size:11px'>재시도</button>")
         elif it["governance"] == "FAIL":
             btn = "<span style='color:#a8253a;font-weight:600'>검수 FAIL</span>"
         else:
@@ -293,7 +301,7 @@ def _calendar_panel() -> str:
     for lang, name_key, topic_key, flag in [
         ("ko", "name_ko", "topic_ko", "🇰🇷"),
         ("en", "name_en", "topic_en", "🇺🇸"),
-        ("ja", "name_en", "topic_ja", "🇯🇵"),
+        ("ja", "name_ko", "topic_ja", "🇯🇵"),
     ]:
         if not upcoming:
             lang_event_html[lang] = '<div style="color:#bbb;font-size:12px">예정 이벤트 없음</div>'
@@ -376,6 +384,7 @@ def build() -> str:
     total = len(q)
     posted = sum(1 for i in q if i["status"] == "POSTED")
     approved = sum(1 for i in q if i["status"] == "APPROVED")
+    failed_posts = sum(1 for i in q if i["status"] == "FAILED")
     passes = sum(1 for i in q if i["governance"] == "PASS")
     warns = sum(1 for i in q if i["governance"] == "WARN")
     fails = sum(1 for i in q if i["governance"] == "FAIL")
@@ -523,18 +532,20 @@ def build() -> str:
     <div class="stat"><div class="num" style="color:#15803d">{passes}</div><div class="lbl">검수 PASS</div></div>
     <div class="stat"><div class="num" style="color:#7a5f00">{warns}</div><div class="lbl">검수 WARN</div></div>
     <div class="stat"><div class="num" style="color:#a8253a">{fails}</div><div class="lbl">검수 FAIL</div></div>
+    {'<div class="stat"><div class="num" style="color:#a8253a;font-weight:700">' + str(failed_posts) + '</div><div class="lbl">게시 실패</div></div>' if failed_posts else ''}
   </div>
   {_calendar_panel()}
   {_social_panel()}
   {_activity_feed()}
 </div>
 <script>
+const _t = new URLSearchParams(window.location.search).get('_t') || '';
 async function gen(platform, btn){{
   const t = (document.getElementById('genTopic').value || '').trim();
   if(!t){{ alert('주제를 입력하세요'); return; }}
   const old = btn.textContent; btn.disabled = true; btn.textContent = '생성 중…';
   try {{
-    const r = await fetch('/api/social/generate?platform=' + platform + '&topic=' + encodeURIComponent(t));
+    const r = await fetch('/api/social/generate?platform=' + platform + '&topic=' + encodeURIComponent(t) + '&_t=' + _t);
     const j = await r.json();
     if (j.created) {{ location.reload(); }}
     else {{ alert('오류: ' + (j.error || '실패')); btn.disabled = false; btn.textContent = old; }}
@@ -556,7 +567,7 @@ function setLang(lang) {{
 async function pub(id, btn){{
   const old = btn.textContent; btn.disabled = true; btn.textContent = '게시 중…';
   try {{
-    const r = await fetch('/api/social/publish?id=' + encodeURIComponent(id));
+    const r = await fetch('/api/social/publish?id=' + encodeURIComponent(id) + '&_t=' + _t);
     const j = await r.json();
     if (j.status === 'posted') {{ btn.textContent = '✓ 게시됨'; }}
     else if (j.status === 'dry-run') {{ btn.disabled = false; btn.textContent = old;

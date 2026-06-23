@@ -18,7 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from engine import (channels, dashboard, generator, governance, monitor,
+from engine import (channels, dashboard, generator, governance,
                     publisher, reddit_radar, server, social)
 from engine.config import DATA_DIR, settings
 
@@ -142,8 +142,6 @@ def cmd_social_approve(args):
 
 
 def cmd_social_publish(args):
-    if not settings.llm_enabled:
-        pass
     results = social.publish(due_only=args.due)
     if not results:
         print("게시할 APPROVED 항목이 없습니다 (먼저 social-approve).")
@@ -190,22 +188,6 @@ def cmd_radar(args):
     print(f"🖥  대시보드 갱신: {dashboard.write()}")
     print("※ 자동 게시 아님 — 대시보드에서 검토 후 직접 올리세요.")
 
-
-def cmd_monitor(args):
-    wt = getattr(args, "with_tools", False)
-    label = "도구 장착(MCP 연동 시뮬레이션)" if wt else "기준선(도구 없음)"
-    print(f"📡 AI 노출 모니터 실행 중 — {label}...\n")
-    snap = monitor.run(with_tools=wt)
-    if snap is None:
-        print("⚠️ OPENAI_API_KEY가 필요합니다 (모니터는 LLM 호출).")
-        return
-    print(monitor.format_report(snap))
-    base = monitor.latest("baseline")
-    tools = monitor.latest("with-tools")
-    if base and tools:
-        print(f"\n📈 SoAV 비교  기준선 {base['soav']}%  →  MCP 도구 장착 {tools['soav']}%")
-    dashboard.write()
-    print("\n🖥  대시보드 갱신됨.")
 
 
 def cmd_status(_):
@@ -265,10 +247,6 @@ def main():
     spx = sub.add_parser("social-publish", help="🚀 승인된 SNS 게시 (실제/dry-run)")
     spx.add_argument("--due", action="store_true", help="예약시간 도래분만 게시")
     spx.set_defaults(func=cmd_social_publish)
-    m = sub.add_parser("monitor", help="📡 AI 노출(위홈 추천/인용) 측정")
-    m.add_argument("--with-tools", action="store_true",
-                   help="위홈 MCP 도구를 AI에 쥐여주고 측정 (등록 시 효과 증명)")
-    m.set_defaults(func=cmd_monitor)
     rad = sub.add_parser("radar", help="📡 Reddit 기회 탐색 + 답변 초안(사람이 게시)")
     rad.add_argument("--auto", type=int, metavar="N", help="상위 N개 스레드에 초안 생성")
     rad.set_defaults(func=cmd_radar)

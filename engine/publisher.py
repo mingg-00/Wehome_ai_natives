@@ -49,7 +49,7 @@ def approve(slug: str) -> dict:
     if st["governance"] == "FAIL":
         return {"ok": False, "msg": f"검수 FAIL 상태라 승인 불가. 재생성/수정 후 승인하세요."}
     st["status"] = "APPROVED"
-    st["approved_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+    st["approved_at"] = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec="seconds")
     sf.write_text(json.dumps(st, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True, "msg": f"✅ '{slug}' 발행 승인 완료. output/{slug}/article.md 를 CMS에 게시하세요."}
 

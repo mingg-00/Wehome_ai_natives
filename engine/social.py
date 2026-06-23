@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import datetime
+import fcntl
 import hashlib
 import hmac
 import json
@@ -30,8 +32,11 @@ from . import activity_log as _alog
 
 PLATFORMS = ["instagram", "threads", "x", "pinterest", "facebook"]
 QUEUE_FILE = OUTPUT_DIR / "social_queue.json"
+_LOCK_FILE = OUTPUT_DIR / ".social_queue.lock"
 
 _LIMITS = {"x": 280, "threads": 500}
+_catbox_cache: dict[str, str] = {}  # publish() 호출 단위 catbox URL 캐시
+_MAX_RETRIES = 3  # 자동 재시도 한계 — 초과 시 FAILED로 전환
 _X_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
 _CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB (X 청크 상한 5 MB 이하)
 
@@ -128,9 +133,36 @@ def _save(items: list[dict]) -> None:
     QUEUE_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+@contextlib.contextmanager
+def _queue_lock():
+    """프로세스 간 배타적 파일 락 — 봇과 서버의 동시 큐 쓰기 방지."""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_LOCK_FILE, "w") as _lf:
+        fcntl.flock(_lf.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(_lf.fileno(), fcntl.LOCK_UN)
+
+
+def _try_delete_video(video_path: str, items: list[dict]) -> None:
+    """해당 video_path를 참조하는 모든 큐 항목이 POSTED일 때만 로컬 파일 삭제."""
+    if not video_path or not os.path.exists(video_path):
+        return
+    still_needed = any(
+        i.get("video_path") == video_path and i["status"] != "POSTED"
+        for i in items
+    )
+    if not still_needed:
+        try:
+            os.remove(video_path)
+            print(f"[social] 영상 파일 삭제 완료: {video_path}")
+        except Exception as e:
+            print(f"[social] 영상 파일 삭제 실패: {e}")
+
+
 def enqueue(platform: str, topic: str, post: dict, governance: str,
             scheduled_at: str | None, video_path: str | None = None) -> dict:
-    items = _load()
     post = utm.inject(platform, post, topic)   # UTM 링크 자동 주입
     item = {
         "id": f"sp-{datetime.datetime.now():%Y%m%d%H%M%S%f}-{platform}",
@@ -138,12 +170,15 @@ def enqueue(platform: str, topic: str, post: dict, governance: str,
         "text": render(platform, post),
         "governance": governance, "status": "DRAFT",
         "scheduled_at": scheduled_at,
-        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "created_at": datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec="seconds"),
         "posted_at": None, "result": None,
         "video_path": video_path,
+        "retry_count": 0, "last_error": None,
     }
-    items.append(item)
-    _save(items)
+    with _queue_lock():
+        items = _load()
+        items.append(item)
+        _save(items)
     _alog.append("generate", f"{platform.upper()} 콘텐츠 자동 생성", platform=platform, detail=topic[:80])
     return item
 
@@ -153,63 +188,155 @@ def queue() -> list[dict]:
 
 
 def approve(item_id: str) -> dict:
-    items = _load()
-    for it in items:
-        if it["id"] == item_id:
-            if it["governance"] == "FAIL":
-                return {"ok": False, "msg": "검수 FAIL 상태라 승인 불가."}
-            it["status"] = "APPROVED"
-            _save(items)
-            return {"ok": True, "msg": f"✅ 승인됨: {item_id}"}
+    with _queue_lock():
+        items = _load()
+        for it in items:
+            if it["id"] == item_id:
+                if it["governance"] == "FAIL":
+                    return {"ok": False, "msg": "검수 FAIL 상태라 승인 불가."}
+                it["status"] = "APPROVED"
+                _save(items)
+                return {"ok": True, "msg": f"✅ 승인됨: {item_id}"}
     return {"ok": False, "msg": f"{item_id} 없음"}
 
 
 def publish_one(item_id: str) -> dict:
     """단건 즉시 게시(대시보드 '지금 게시' 버튼용). 클릭 = 승인 + 게시.
     검수 FAIL은 게시 차단. 토큰 없으면 dry-run 반환."""
-    items = _load()
-    for it in items:
-        if it["id"] == item_id:
-            if it["status"] == "POSTED":
-                return {"status": "posted", "id": it.get("post", {}).get("id"), "note": "이미 게시됨"}
-            if it["governance"] == "FAIL":
-                return {"status": "error", "error": "검수 FAIL — 게시 불가"}
-            it["status"] = "APPROVED"
-            video_path = it.get("video_path")
-            res = post_to(it["platform"], it["post"], video_path=video_path)
-            it["result"] = res
+    # 1단계: 락 안에서 항목 조회 및 유효성 검증
+    with _queue_lock():
+        items = _load()
+        target = next((it for it in items if it["id"] == item_id), None)
+        if target is None:
+            return {"status": "error", "error": f"{item_id} 없음"}
+        if target["status"] == "POSTED":
+            return {"status": "posted", "id": target.get("post", {}).get("id"), "note": "이미 게시됨"}
+        if target["governance"] == "FAIL":
+            return {"status": "error", "error": "검수 FAIL — 게시 불가"}
+        platform = target["platform"]
+        post = target["post"]
+        video_path = target.get("video_path")
+
+    # 2단계: API 호출 (락 밖 — 느린 작업)
+    res = post_to(platform, post, video_path=video_path)
+
+    # 3단계: 락 안에서 결과 반영
+    with _queue_lock():
+        items = _load()
+        target = next((it for it in items if it["id"] == item_id), None)
+        if target is not None:
+            target["result"] = res
             if res.get("status") == "posted":
-                it["status"] = "POSTED"
-                it["posted_at"] = datetime.datetime.now(
+                target["status"] = "POSTED"
+                target["retry_count"] = 0
+                target["last_error"] = None
+                target["posted_at"] = datetime.datetime.now(
                     datetime.timezone(datetime.timedelta(hours=9))
                 ).isoformat(timespec="seconds")
-                _alog.append("post", f"{it['platform'].upper()} 게시 완료 (수동)",
-                             platform=it["platform"], detail=it.get("topic", "")[:80])
+                _alog.append("post", f"{platform.upper()} 게시 완료 (수동)",
+                             platform=platform, detail=target.get("topic", "")[:80])
+            else:
+                target["status"] = "APPROVED"  # FAILED였어도 수동 재시도 허용
+                target["last_error"] = res.get("error", "")[:200]
             _save(items)
-            return res
-    return {"status": "error", "error": f"{item_id} 없음"}
+
+    if res.get("status") == "posted" and video_path:
+        _try_delete_video(video_path, items)
+    return res
 
 
 def publish(due_only: bool = False) -> list[dict]:
     """APPROVED 항목을 게시(실제 or dry-run). due_only면 예약시간 도래분만."""
-    items = _load()
-    results = []
+    _catbox_cache.clear()
+
+    # 1단계: 게시 대상 목록 수집
+    with _queue_lock():
+        items = _load()
+        due = [
+            it for it in items
+            if it["status"] == "APPROVED"
+            and not (due_only and it.get("scheduled_at") and not _sched.is_due(it["scheduled_at"]))
+        ]
+
+    if not due:
+        return []
+
+    # 2단계: API 호출 (락 밖)
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec="seconds")
-    for it in items:
-        if it["status"] != "APPROVED":
-            continue
-        if due_only and it.get("scheduled_at") and not _sched.is_due(it["scheduled_at"]):
-            continue
-        video_path = it.get("video_path")
-        res = post_to(it["platform"], it["post"], video_path=video_path)
-        it["result"] = res
-        if res.get("status") == "posted":
-            it["status"] = "POSTED"
-            it["posted_at"] = now
-            _alog.append("post", f"{it['platform'].upper()} 자동 게시 완료", platform=it["platform"], detail=it.get("topic", "")[:80])
-        results.append({"id": it["id"], "platform": it["platform"], **res})
-    _save(items)
+    call_results: list[tuple[str, dict]] = []
+    for it in due:
+        res = post_to(it["platform"], it["post"], video_path=it.get("video_path"))
+        call_results.append((it["id"], res))
+
+    # 3단계: 결과 반영
+    newly_posted_paths: set[str] = set()
+    results = []
+    with _queue_lock():
+        items = _load()
+        id_map = {it["id"]: it for it in items}
+        for item_id, res in call_results:
+            it = id_map.get(item_id)
+            if it is None:
+                continue
+            it["result"] = res
+            result_status = res.get("status")
+            if result_status == "posted":
+                it["status"] = "POSTED"
+                it["posted_at"] = now
+                it["retry_count"] = 0
+                _alog.append("post", f"{it['platform'].upper()} 자동 게시 완료",
+                             platform=it["platform"], detail=it.get("topic", "")[:80])
+                if it.get("video_path"):
+                    newly_posted_paths.add(it["video_path"])
+                results.append({"id": item_id, "platform": it["platform"], **res})
+            elif result_status == "error":
+                it["retry_count"] = it.get("retry_count", 0) + 1
+                it["last_error"] = res.get("error", "")[:200]
+                if it["retry_count"] >= _MAX_RETRIES:
+                    it["status"] = "FAILED"
+                    _alog.append("post", f"{it['platform'].upper()} 게시 포기 ({_MAX_RETRIES}회 실패)",
+                                 platform=it["platform"], detail=it.get("last_error", "")[:80])
+                    results.append({"id": item_id, "platform": it["platform"],
+                                   "status": "failed", "error": it["last_error"],
+                                   "retry_count": it["retry_count"]})
+                else:
+                    results.append({"id": item_id, "platform": it["platform"], **res})
+            else:
+                results.append({"id": item_id, "platform": it["platform"], **res})
+        _save(items)
+
+    for vp in newly_posted_paths:
+        _try_delete_video(vp, items)
     return results
+
+
+def prune_old_posted(days: int = 30) -> int:
+    """POSTED 상태에서 days일 초과한 항목을 큐에서 제거. 삭제 건수 반환."""
+    _KST = datetime.timezone(datetime.timedelta(hours=9))
+    cutoff = datetime.datetime.now(_KST) - datetime.timedelta(days=days)
+
+    def _is_expired(it: dict) -> bool:
+        if it["status"] not in ("POSTED", "FAILED"):
+            return False
+        ts_str = it.get("posted_at") or it.get("created_at") or ""
+        if not ts_str:
+            return False
+        try:
+            ts = datetime.datetime.fromisoformat(ts_str)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=_KST)
+            return ts < cutoff
+        except Exception:
+            return False
+
+    with _queue_lock():
+        items = _load()
+        kept = [it for it in items if not _is_expired(it)]
+        removed = len(items) - len(kept)
+        if removed:
+            _save(kept)
+            print(f"[social] 큐 정리: {removed}건 POSTED 항목 삭제 (30일 초과)")
+    return removed
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +561,12 @@ def _fb_refresh_page_token() -> str | None:
     return new_token
 
 
+def refresh_meta_tokens() -> bool:
+    """META User 토큰 60일 연장 + Page 토큰 갱신 + .env 자동 저장.
+    App ID·App Secret·META_ACCESS_TOKEN이 모두 있어야 동작. 성공 시 True."""
+    return bool(_fb_refresh_page_token())
+
+
 # ---------------------------------------------------------------------------
 # Facebook 영상 직접 업로드
 # ---------------------------------------------------------------------------
@@ -558,7 +691,10 @@ def _post_facebook(post: dict, video_path: str | None = None) -> dict:
 
 
 def _upload_to_catbox(video_path: str) -> str:
-    """catbox.moe에 영상 업로드 → 공개 URL 반환. 추가 설정 불필요."""
+    """catbox.moe에 영상 업로드 → 공개 URL 반환. 동일 경로는 캐시 재사용."""
+    if video_path in _catbox_cache:
+        print(f"  [catbox] 캐시 재사용: {_catbox_cache[video_path]}")
+        return _catbox_cache[video_path]
     filename = os.path.basename(video_path)
     with open(video_path, "rb") as f:
         video_data = f.read()
@@ -576,12 +712,13 @@ def _upload_to_catbox(video_path: str) -> str:
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
     )
-    print(f"  [Threads] 공개 호스팅 업로드 중 ({len(video_data)//1024}KB)…")
+    print(f"  [catbox] 공개 호스팅 업로드 중 ({len(video_data)//1024}KB)…")
     with urllib.request.urlopen(req, timeout=120) as r:
         url = r.read().decode().strip()
     if not url.startswith("https://"):
         raise RuntimeError(f"catbox 업로드 실패: {url}")
-    print(f"  [Threads] 공개 URL: {url}")
+    print(f"  [catbox] 공개 URL: {url}")
+    _catbox_cache[video_path] = url
     return url
 
 

@@ -41,7 +41,11 @@ def _bearer() -> str | None:
         "https://www.reddit.com/api/v1/access_token", data=body,
         headers={"Authorization": f"Basic {auth}", "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=10) as r:
-        tok = json.loads(r.read().decode("utf-8"))["access_token"]
+        data = json.loads(r.read().decode("utf-8"))
+    tok = data.get("access_token")
+    if not tok:
+        print(f"[Reddit] 토큰 발급 실패: {data}")
+        return None
     _token_cache["tok"] = tok
     return tok
 

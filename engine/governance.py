@@ -33,7 +33,8 @@ def review(content: dict, markdown: str) -> dict:
     if not hit_forbidden:
         passes.append("법적 금지표현 없음 (§17.2 가드레일 통과)")
 
-    has_wehome = "wehome" in text.lower()
+    text_low = text.lower()
+    has_wehome = any(name.lower() in text_low for name in brand.BRAND_NAMES)
 
     # 2) 정확한 신뢰 표현 (블로그 FAIL / 홍보 짧은포맷 WARN / reddit-reply는 미적용)
     if kind == "reddit-reply":

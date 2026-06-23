@@ -62,12 +62,6 @@ ORG = {
     "author": "Wehome Travel & Compliance Team",
 }
 
-# AI 노출 모니터링용 — 경쟁/대체 플랫폼 (Share of AI Voice 측정)
-COMPETITORS = [
-    "Airbnb", "Booking.com", "Booking", "Agoda", "Expedia", "Hotels.com",
-    "Hostelworld", "Klook", "Trip.com", "Goki", "Kozaza",
-]
-
 # ---------------------------------------------------------------------------
 # 🚨 법적 가드레일 (제안서 §17.2)
 #   정부가 검증/허가한 대상은 '플랫폼(위홈)'이지 '개별 숙소'가 아니다.
@@ -89,12 +83,20 @@ FORBIDDEN_PATTERNS: list[tuple[re.Pattern, str]] = [
      "개별 숙소에 대한 '100% 안전/합법' 단정 표현 금지"),
 ]
 
+# 브랜드 언급으로 인정하는 표기 (영문/한글) — 국내 콘텐츠 대응
+BRAND_NAMES = ["wehome", "위홈"]
+
 # 콘텐츠에 최소 하나는 들어가야 하는 정확한 신뢰 표현 (택1)
+# 영문/한글 모두 인정 — 국내 한국어 콘텐츠도 검수가 동작하도록.
 REQUIRED_TRUST_MARKERS = [
     "government-authorized home-sharing platform",
     "government-authorized platform",
     "Government-authorized home sharing",
     SLOGANS_EN["main"],
+    SLOGANS_KO["main"],          # "합법 공유숙박은 위홈"
+    "공유숙박 임시허가 플랫폼",
+    "임시허가 플랫폼",
+    "정부 실증특례",
 ]
 
 
