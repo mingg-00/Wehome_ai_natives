@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import json
 
-import markdown as md
-
 from .config import OUTPUT_DIR
-from . import publisher, social, schedule as sched, events as evt, activity_log as _alog
+from . import social, schedule as sched, events as evt, activity_log as _alog
 
 # ---------------------------------------------------------------------------
 # SVG 아이콘 시스템 (Lucide 라인 아이콘) — 이모지 대체
@@ -77,16 +75,6 @@ def _badge(text: str) -> str:
             f'border-radius:var(--r-pill);font-size:11px;font-weight:600;'
             f'letter-spacing:.02em">{text}</span>')
 
-
-def _publisher_view(text: str) -> tuple[str, bool]:
-    """게시자 화면용: 본문(2번)만. 1)메타·3·4)schema는 숨김(파일엔 보존)."""
-    start = text.find("## 2)")
-    end = text.find("\n## 3)")
-    if start != -1:
-        body = text[start:end] if end != -1 else text[start:]
-        nl = body.find("\n")
-        return (body[nl + 1:].strip() if nl != -1 else body.strip()), True
-    return (text[:end].rstrip() if end != -1 else text.rstrip()), (end != -1)
 
 
 _GEN_FORM = f"""
@@ -379,36 +367,13 @@ def _calendar_panel() -> str:
 
 
 def build() -> str:
-    items = publisher.list_items()
-    n = len(items)
-    approved = sum(1 for i in items if i["status"] == "APPROVED")
-    fails = sum(1 for i in items if i["governance"] == "FAIL")
-    warns = sum(1 for i in items if i["governance"] == "WARN")
-    passes = sum(1 for i in items if i["governance"] == "PASS")
-
-    cards = []
-    for it in items:
-        art = OUTPUT_DIR / it["slug"] / "article.md"
-        raw = art.read_text(encoding="utf-8") if art.exists() else ""
-        clean, had_schema = _publisher_view(raw)
-        body_html = md.markdown(clean, extensions=["tables", "fenced_code"]) if clean else ""
-        note = ("<p class='meta' style='color:#999;margin-top:10px'>✓ 검색·AI용 메타데이터는 "
-                "자동 처리됩니다 — 게시자는 본문만 신경 쓰면 됩니다.</p>") if had_schema else ""
-        cards.append(f"""
-        <div class="card">
-          <div class="card-head">
-            <div>
-              <div class="title">{it['title']}</div>
-              <div class="meta">{_badge(it.get('kind','blog').upper())} {_badge(it['status'])} 검수 {_badge(it['governance'])}
-                <code>{it['slug']}</code></div>
-            </div>
-            <div class="approve">{'✅ 발행 승인됨' if it['status']=='APPROVED'
-              else f"대기 → <code>python main.py approve {it['slug']}</code>"}</div>
-          </div>
-          <details><summary>본문 보기 / 접기</summary>
-            <div class="article">{body_html}{note}</div>
-          </details>
-        </div>""")
+    q = social.queue()
+    total = len(q)
+    posted = sum(1 for i in q if i["status"] == "POSTED")
+    approved = sum(1 for i in q if i["status"] == "APPROVED")
+    passes = sum(1 for i in q if i["governance"] == "PASS")
+    warns = sum(1 for i in q if i["governance"] == "WARN")
+    fails = sum(1 for i in q if i["governance"] == "FAIL")
 
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -445,16 +410,10 @@ def build() -> str:
     letter-spacing:-.02em;color:var(--ink)}}
   .meta{{margin-top:var(--s2);font-size:12px;color:var(--muted);display:flex;gap:var(--s2);
     align-items:center;flex-wrap:wrap;font-weight:400}}
-  .approve{{font-size:12px;color:var(--faint);text-align:right;min-width:160px;font-weight:400}}
   code{{background:var(--violet-tint);color:var(--violet-dark);padding:2px 6px;
     border-radius:var(--r-sm);font-size:12px}}
   details{{margin-top:var(--s3)}}
   summary{{cursor:pointer;color:var(--violet);font-weight:500;font-size:13px}}
-  .article{{border-top:1px solid var(--line);margin-top:var(--s3);padding-top:var(--s3)}}
-  .article table{{border-collapse:collapse;width:100%;margin:var(--s3) 0}}
-  .article th,.article td{{border:1px solid var(--line);padding:var(--s2) var(--s3);font-size:14px;text-align:left}}
-  .article pre{{background:#f7f6fb;padding:var(--s3);border-radius:var(--r-sm);overflow:auto;font-size:12px}}
-  .article h1{{font-size:21px;color:var(--ink)}} .article h2{{font-size:17px;margin-top:var(--s5)}}
   /* buttons */
   .pub-btn,.gen-btn{{background:var(--violet);color:#fff;border:none;border-radius:var(--r-sm);
     padding:var(--s2) var(--s3);font-size:12px;font-weight:600;cursor:pointer;
@@ -504,8 +463,6 @@ def build() -> str:
   .sns-ico:hover{{transform:translateY(-2px)}}
   .howto{{background:var(--violet-soft);color:var(--violet-dark);padding:var(--s3) var(--s4);
     border-radius:var(--r-md);font-size:13px;margin:0 0 var(--s5);display:flex;align-items:center;gap:var(--s2)}}
-  .section-h{{font-size:16px;font-weight:600;margin:var(--s5) 0 var(--s3);
-    display:flex;align-items:center;gap:var(--s2);letter-spacing:-.01em}}
   /* activity feed */
   .feed-card{{padding:var(--s5)}}
   .feed-head{{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s4)}}
@@ -551,20 +508,19 @@ def build() -> str:
 </div>
 <div class="wrap">
   <h1>{_icon('sparkles', 22, '#7c3aed')} Wehome AI Marketing Engine</h1>
-  <p class="sub">콘텐츠 자동 생성 현황 · 생성·검수 자동 / 사람 승인 후 발행</p>
-  <p class="howto">{_icon('arrow-right', 16)} 본문만 복사해서 게시글을 작성하면 됩니다. (오른쪽 위 아이콘 = 해당 SNS로 이동)</p>
+  <p class="sub">SNS 자동화 현황 · AI 생성·검수 자동 / 사람 승인 후 발행</p>
+  <p class="howto">{_icon('arrow-right', 16)} 오른쪽 위 아이콘으로 해당 SNS 이동 · 아래 큐에서 "지금 게시" 클릭으로 즉시 발행</p>
   <div class="summary">
-    <div class="stat"><div class="num">{n}</div><div class="lbl">총 생성</div></div>
-    <div class="stat"><div class="num">{approved}</div><div class="lbl">발행 승인됨</div></div>
+    <div class="stat"><div class="num">{total}</div><div class="lbl">총 SNS 포스트</div></div>
+    <div class="stat"><div class="num" style="color:#7c3aed">{approved}</div><div class="lbl">승인 대기</div></div>
+    <div class="stat"><div class="num" style="color:#15803d">{posted}</div><div class="lbl">게시 완료</div></div>
     <div class="stat"><div class="num" style="color:#15803d">{passes}</div><div class="lbl">검수 PASS</div></div>
     <div class="stat"><div class="num" style="color:#7a5f00">{warns}</div><div class="lbl">검수 WARN</div></div>
     <div class="stat"><div class="num" style="color:#a8253a">{fails}</div><div class="lbl">검수 FAIL</div></div>
   </div>
   {_calendar_panel()}
-  {_activity_feed()}
   {_social_panel()}
-  <h2 class="section-h">{_icon('file-text', 18, '#7c3aed')} 생성된 콘텐츠</h2>
-  {''.join(cards)}
+  {_activity_feed()}
 </div>
 <script>
 async function gen(platform, btn){{
