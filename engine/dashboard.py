@@ -11,7 +11,7 @@ import json
 import markdown as md
 
 from .config import OUTPUT_DIR
-from . import publisher, social, schedule as sched, events as evt
+from . import publisher, social, schedule as sched, events as evt, activity_log as _alog
 
 # ---------------------------------------------------------------------------
 # SVG 아이콘 시스템 (Lucide 라인 아이콘) — 이모지 대체
@@ -134,6 +134,94 @@ def _social_panel() -> str:
       <div class="meta">총 {len(q)}건 · 승인 {appr} · 게시 {posted} · "지금 게시" = 승인+즉시 게시(토큰 없으면 dry-run)</div>
       {_GEN_FORM}
       {table}
+    </div>"""
+
+
+_FEED_ICON = {
+    "post":     ("check",       "#15803d", "#eafaf0", "자동 게시됨"),
+    "generate": ("sparkles",    "#7c3aed", "#ede9fe", "콘텐츠 생성"),
+    "trend":    ("trending-up", "#0d6f9f", "#e0f2fe", "트렌드 감지"),
+    "property": ("home",        "#92400e", "#fef3c7", "신규 숙소"),
+    "campaign": ("calendar",    "#5b21b6", "#ede9fe", "시즌 캠페인"),
+}
+
+_PLAT_COLOR_FEED = {
+    "instagram": "#e1306c", "threads": "#111", "facebook": "#1877f2",
+    "youtube": "#ff0000", "x": "#000", "pinterest": "#e60023",
+}
+
+
+def _activity_feed() -> str:
+    """최근 자동화 활동 피드 패널."""
+    import datetime
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+
+    events = _alog.recent(30)
+
+    if not events:
+        return f"""<div class="card feed-card">
+      <div class="title">{_icon('clock', 19, '#7c3aed')} 자동화 활동 피드</div>
+      <div class="empty-state" style="margin-top:var(--s4)">
+        {_icon('clock', 28, '#c4b5f9', 1.5)}
+        <div class="empty-title">아직 기록된 활동이 없습니다</div>
+        <div class="empty-sub">봇이 실행되면 트렌드 감지·숙소 감지·게시 완료 등<br>자동화 이벤트가 여기에 쌓입니다.</div>
+      </div>
+    </div>"""
+
+    rows_html = []
+    for ev in events:
+        type_ = ev.get("type", "generate")
+        icon_name, icon_color, bg_color, type_label = _FEED_ICON.get(
+            type_, ("clock", "#888", "#f5f5f5", type_)
+        )
+        platform = ev.get("platform")
+        plat_badge = ""
+        if platform:
+            pc = _PLAT_COLOR_FEED.get(platform, "#7c3aed")
+            plat_badge = (
+                f'<span style="background:{pc};color:#fff;font-size:10px;font-weight:700;'
+                f'padding:1px 7px;border-radius:var(--r-pill);margin-left:6px;'
+                f'vertical-align:middle">{platform.upper()}</span>'
+            )
+
+        ts_raw = ev.get("ts", "")
+        try:
+            ts = datetime.datetime.fromisoformat(ts_raw)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=kst)
+            ts_disp = ts.astimezone(kst).strftime("%m/%d %H:%M")
+        except Exception:
+            ts_disp = ts_raw[:16]
+
+        msg = ev.get("msg", "")
+        detail = ev.get("detail", "")
+        detail_html = (
+            f'<div class="feed-detail">{detail[:70]}{"…" if len(detail) > 70 else ""}</div>'
+            if detail else ""
+        )
+
+        rows_html.append(f"""
+        <div class="feed-row">
+          <div class="feed-dot" style="background:{bg_color}">
+            {_icon(icon_name, 14, icon_color, 2)}
+          </div>
+          <div class="feed-body">
+            <div class="feed-main">
+              <span class="feed-type" style="color:{icon_color}">{type_label}</span>
+              {plat_badge}
+              <span class="feed-msg">{msg}</span>
+            </div>
+            {detail_html}
+          </div>
+          <div class="feed-ts">{ts_disp}</div>
+        </div>""")
+
+    return f"""<div class="card feed-card">
+      <div class="feed-head">
+        <div class="title">{_icon('clock', 19, '#7c3aed')} 자동화 활동 피드</div>
+        <span class="feed-count">{len(events)}건</span>
+      </div>
+      <div class="feed-list">{''.join(rows_html)}</div>
     </div>"""
 
 
@@ -418,6 +506,24 @@ def build() -> str:
     border-radius:var(--r-md);font-size:13px;margin:0 0 var(--s5);display:flex;align-items:center;gap:var(--s2)}}
   .section-h{{font-size:16px;font-weight:600;margin:var(--s5) 0 var(--s3);
     display:flex;align-items:center;gap:var(--s2);letter-spacing:-.01em}}
+  /* activity feed */
+  .feed-card{{padding:var(--s5)}}
+  .feed-head{{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s4)}}
+  .feed-count{{font-size:12px;background:var(--violet-soft);color:var(--violet-dark);
+    padding:2px 10px;border-radius:var(--r-pill);font-weight:600}}
+  .feed-list{{display:flex;flex-direction:column;gap:0}}
+  .feed-row{{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s3) 0;
+    border-bottom:1px solid var(--line)}}
+  .feed-row:last-child{{border-bottom:none}}
+  .feed-dot{{width:32px;height:32px;border-radius:var(--r-sm);display:flex;
+    align-items:center;justify-content:center;flex-shrink:0}}
+  .feed-body{{flex:1;min-width:0}}
+  .feed-main{{display:flex;align-items:center;gap:6px;flex-wrap:wrap}}
+  .feed-type{{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}}
+  .feed-msg{{font-size:13px;color:var(--ink);font-weight:500}}
+  .feed-detail{{font-size:12px;color:var(--faint);margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px}}
+  .feed-ts{{font-size:11px;color:var(--faint);white-space:nowrap;padding-top:2px;font-variant-numeric:tabular-nums}}
   /* empty state */
   .empty-state{{display:flex;flex-direction:column;align-items:center;gap:var(--s3);
     padding:var(--s6) var(--s5);border:2px dashed var(--line);border-radius:var(--r-md);
@@ -455,6 +561,7 @@ def build() -> str:
     <div class="stat"><div class="num" style="color:#a8253a">{fails}</div><div class="lbl">검수 FAIL</div></div>
   </div>
   {_calendar_panel()}
+  {_activity_feed()}
   {_social_panel()}
   <h2 class="section-h">{_icon('file-text', 18, '#7c3aed')} 생성된 콘텐츠</h2>
   {''.join(cards)}

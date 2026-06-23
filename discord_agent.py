@@ -12,6 +12,7 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 from engine import social, governance, schedule as sched, events as evt, multilang
 from engine import trends as trend_engine, property_monitor as prop_mon
+from engine import activity_log as _alog
 
 
 def _friendly_error(error: str) -> str:
@@ -150,6 +151,7 @@ async def _check_seasonal_campaigns():
 
     for campaign in due:
         print(f"🗓️ 시즌 캠페인 트리거: {campaign['name_ko']} (D-{campaign['lead_days']})")
+        _alog.append("campaign", f"시즌 캠페인 자동 생성 — {campaign['name_ko']}", detail=f"D-{campaign['days_until']} / {campaign['start_date']}")
 
         platforms = ["threads", "facebook", "instagram"]
         topic_by_lang = {
@@ -211,6 +213,7 @@ async def _check_trends():
     platforms = ["threads", "facebook", "instagram"]
 
     for topic in topics:
+        _alog.append("trend", f"트렌드 감지 — {topic['keyword']}", detail=topic["topic_ko"][:80])
         lines = [
             f"🔥 **트렌드 캠페인 자동 생성** — `{topic['keyword']}`",
             f"📍 주제: {topic['topic_ko']}",
@@ -253,6 +256,7 @@ async def _check_new_properties():
     platforms = ["threads", "facebook", "instagram"]
 
     for prop in new_props:
+        _alog.append("property", f"신규 숙소 감지 — {prop.title}", detail=f"{prop.region_ko} / {prop.room_url}")
         lines = [
             f"🏠 **신규 숙소 감지** — {prop.title}",
             f"📍 지역: {prop.region_ko}  |  🔗 {prop.room_url}",

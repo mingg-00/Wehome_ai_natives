@@ -26,6 +26,7 @@ from . import brand, utm
 from .config import OUTPUT_DIR, settings
 from .llm import chat_json
 from . import schedule as _sched
+from . import activity_log as _alog
 
 PLATFORMS = ["instagram", "threads", "x", "pinterest", "facebook"]
 QUEUE_FILE = OUTPUT_DIR / "social_queue.json"
@@ -143,6 +144,7 @@ def enqueue(platform: str, topic: str, post: dict, governance: str,
     }
     items.append(item)
     _save(items)
+    _alog.append("generate", f"{platform.upper()} 콘텐츠 자동 생성", platform=platform, detail=topic[:80])
     return item
 
 
@@ -199,6 +201,7 @@ def publish(due_only: bool = False) -> list[dict]:
         if res.get("status") == "posted":
             it["status"] = "POSTED"
             it["posted_at"] = now
+            _alog.append("post", f"{it['platform'].upper()} 자동 게시 완료", platform=it["platform"], detail=it.get("topic", "")[:80])
         results.append({"id": it["id"], "platform": it["platform"], **res})
     _save(items)
     return results
