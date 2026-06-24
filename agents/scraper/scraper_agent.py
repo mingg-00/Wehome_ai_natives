@@ -1,13 +1,13 @@
-from __future__ import annotations                # Python 3.10+에서 타입 힌트에 대한 미래 기능을 활성화
+from __future__ import annotations                       # Python 3.10+에서 타입 힌트에 대한 미래 기능을 활성화
 
-import os                                         # 저장 경로의 디렉터리를 만들기 위해 사용
-import re                                         # 파일명 번호 매기기를 위해 사용
-import time                                       # 크롤링 경과 시간을 측정하기 위해 사용
-from dataclasses import asdict, dataclass, field  # 데이터 클래스와 관련된 유틸리티를 가져온다.
-from html.parser import HTMLParser                # HTML 파싱을 위해 표준 라이브러리의 HTMLParser를 사용
-from typing import Any                            # URL에서 텍스트와 이미지 정보를 추출하기 위한 간단한 크롤러와 프로필 빌더
-from urllib.parse import urljoin                  # URL을 절대 경로로 변환하기 위한 유틸리티
-from urllib.request import Request, urlopen       # 웹 페이지 요청과 응답 처리를 위한 표준 라이브러리
+import os                                                # 저장 경로의 디렉터리를 만들기 위해 사용
+import re                                                # 파일명 번호 매기기를 위해 사용
+import time                                              # 크롤링 경과 시간을 측정하기 위해 사용
+from dataclasses import asdict, dataclass, field         # 데이터 클래스와 관련된 유틸리티를 가져온다.
+from html.parser import HTMLParser                       # HTML 파싱을 위해 표준 라이브러리의 HTMLParser를 사용
+from typing import Any                                   # URL에서 텍스트와 이미지 정보를 추출하기 위한 간단한 크롤러와 프로필 빌더
+from urllib.parse import urljoin                         # URL을 절대 경로로 변환하기 위한 유틸리티
+from urllib.request import Request, urlopen              # 웹 페이지 요청과 응답 처리를 위한 표준 라이브러리
 
 from config.settings import settings, write_json_atomic  # 설정에서 회사 웹사이트 URL과 크롤링 관련 타임아웃, 페이지 수 제한 등을 읽어옴
 
