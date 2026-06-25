@@ -1,4 +1,6 @@
 output/*
 !output/.gitkeep
 .env
+__pycache__/
+*.py[cod]
 

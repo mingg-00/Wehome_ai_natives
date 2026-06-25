@@ -15,9 +15,7 @@ Compress-Archive -Path @(
   'env.example',
   'docs',
   'orchestrator',
-  'scripts',
-  'config'
+  'scripts'
 ) -DestinationPath $archivePath
 
 Write-Host "Created $archivePath"
-

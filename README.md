@@ -1,38 +1,58 @@
 # wehome-integration
 
-통합 실행 레포입니다.
+Integration layer for the Wehome agents.
 
-이 레포는 3개 에이전트의 소스를 복사하지 않고, 아래만 유지합니다.
+This repository does not contain the source code for the agents themselves.
+Keep each agent in its own repository, such as `wehome-analytics-agent`, and use this repo only for:
 
-- `docs/contract.md`
-- `docs/developer_handoff.md`
-- `orchestrator/` 코드
-- `scripts/` 실행 및 배포 스크립트
-- `env.example`
+- contracts
+- execution paths
+- orchestration and logs
 
-## 구조
+## Rule
+
+- Do not copy the source code of the 3 agents into this repository.
+- Keep the source code in each agent's own repository.
+- Let this repository call those agents only through approved commands.
+
+## Layout
 
 ```text
 wehome-integration/
-  orchestrator/
   docs/
-  config/
+  orchestrator/
   scripts/
   output/
-  README.md
   env.example
+  README.md
 ```
 
-## 사용 방식
+## Setup
 
-1. 각 에이전트는 각자 자기 repo/branch를 유지합니다.
-2. 이 통합 레포는 CLI 또는 HTTP로 에이전트를 호출합니다.
-3. 내일 시연 기준으로는 CLI 호출이 가장 단순합니다.
+1. Copy `env.example` to `.env`.
+2. Set each `AGENT_n_CMD` to a command that runs the agent from its own repository or workspace.
+3. Optionally set `AGENT_n_CWD` when the command must run inside that external repository.
 
-## 시작
+Example:
 
 ```powershell
-copy env.example .env
-.\scripts\run.ps1
+AGENT_1_CMD=python C:\repos\wehome-analytics-agent\main.py
+AGENT_1_CWD=C:\repos\wehome-analytics-agent
 ```
+
+## Run
+
+```powershell
+.\scripts\run.ps1
+.\scripts\run.ps1 -Execute
+```
+
+- Without `-Execute`, the orchestrator runs in dry-run mode.
+- With `-Execute`, it runs the configured external commands.
+
+## Outputs
+
+- `output/<agent>.log` for each agent
+- dry-run notes when execution is not enabled
+- command exit codes in the terminal
 

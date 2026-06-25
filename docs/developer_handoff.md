@@ -1,24 +1,32 @@
 # Developer Handoff
 
-## 현재 상태
+## Current state
 
-이 레포는 초기 통합 골격만 포함한다.
+This repository should stay as a thin integration layer.
 
-## 다음 담당자에게 필요한 정보
+## Non-negotiable rule
 
-- 에이전트별 실행 명령은 `env.example` 또는 `.env`에서 정의한다.
-- 실제 에이전트 코드는 각 repo에서 유지한다.
-- 통합 실행은 `scripts/run.ps1` 또는 `orchestrator/main.py`를 통해 수행한다.
+- Do not copy the 3 agent codebases into this repo.
+- Keep source in the agent repos.
+- Only maintain the contract and the execution path here.
 
-## 운영 규칙
+## What to update here
 
-- 새 기능이 필요하면 먼저 계약을 갱신한다.
-- 에이전트 인터페이스가 바뀌면 `docs/contract.md`를 먼저 수정한다.
-- 배포 전에는 `scripts/deploy.ps1`로 산출물을 만든다.
+- `env.example` for external command settings
+- `docs/contract.md` when the command contract changes
+- `orchestrator/main.py` when the execution flow changes
+- `scripts/run.ps1` and `scripts/deploy.ps1` when the runner or package layout changes
 
-## 확인 항목
+## What not to update here
 
-- [ ] 각 에이전트의 실행 명령이 정해졌는지
-- [ ] 출력 포맷이 합의되었는지
-- [ ] 배포 대상이 정해졌는지
+- agent business logic
+- agent prompts
+- agent source trees
+
+## Checklist
+
+- [ ] Each agent is still owned by its own repository
+- [ ] The orchestrator only calls external commands
+- [ ] No agent source code was copied into this repo
+- [ ] Logs still go to `output/`
 

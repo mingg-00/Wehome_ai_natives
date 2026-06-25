@@ -1,33 +1,40 @@
 # Integration Contract
 
-## 목적
+## Principle
 
-이 레포는 여러 에이전트의 실행 경로를 통합하고, 결과를 한 곳에서 수집하는 얇은 오케스트레이션 계층이다.
+This repo is an integration shell, not a source bundle.
 
-## 원칙
+- Do not copy agent source code into this repository.
+- Keep each agent's implementation in its own repository.
+- Use this repo to define the command contract and to run those commands.
 
-- 에이전트 소스 코드는 여기 복사하지 않는다.
-- 각 에이전트는 자기 repo와 branch에서 관리한다.
-- 통합 레포는 호출과 결과 수집만 담당한다.
-- 시연 우선이면 CLI 호출을 우선한다.
+## Contract
 
-## 입력
+Each agent entry must provide:
 
-- 작업 설명
-- 실행 대상 에이전트 목록
-- 환경 변수 또는 config 파일에 정의된 실행 명령
+- `AGENT_n_CMD`: the command to execute
+- `AGENT_n_CWD` optional: the working directory for that command
 
-## 출력
+The orchestrator will:
 
-- `output/` 아래 실행 로그
-- 각 에이전트의 표준 출력/오류
-- 요약 결과 파일
+- run the configured commands in order
+- capture stdout and stderr into `output/`
+- stop at the first non-zero exit code
 
-## 실행 계약
+## Output contract
 
-각 에이전트 실행은 다음을 만족해야 한다.
+- `output/agent-1.log`
+- `output/agent-2.log`
+- `output/agent-3.log`
 
-- 표준 출력으로 상태를 남긴다.
-- 실패 시 0이 아닌 종료 코드를 반환한다.
-- 필요한 경우 JSON 또는 텍스트 결과를 반환한다.
+Each log contains the exact command output for that agent run.
+
+## Rule for new work
+
+If a new agent is added later:
+
+1. create a new repository for that agent
+2. add a new contract entry here
+3. add a new external command in `.env`
+4. do not bring the source code into this repo
 
