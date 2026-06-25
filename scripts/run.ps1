@@ -1,15 +1,15 @@
 param(
-  [switch]$Execute
+  [switch]$Worker
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-$args = @()
-if ($Execute) {
-  $args += '--execute'
+if ($Worker) {
+  python -m orchestrator.main --worker
+  exit $LASTEXITCODE
 }
 
-python .\orchestrator\main.py @args
+python -m discord_bot.main
 

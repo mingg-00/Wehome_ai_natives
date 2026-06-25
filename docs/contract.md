@@ -1,40 +1,72 @@
 # Integration Contract
 
-## Principle
+## Purpose
 
-This repo is an integration shell, not a source bundle.
+This repository is the orchestration layer for the campaign pipeline.
 
-- Do not copy agent source code into this repository.
-- Keep each agent's implementation in its own repository.
-- Use this repo to define the command contract and to run those commands.
+It owns:
 
-## Contract
+- Discord command entrypoints
+- orchestration order
+- result persistence
+- deployment wiring
 
-Each agent entry must provide:
+It does not own:
 
-- `AGENT_n_CMD`: the command to execute
-- `AGENT_n_CWD` optional: the working directory for that command
+- the 3 agent codebases
+- agent prompt logic
+- agent business logic
 
-The orchestrator will:
+## Pipeline
 
-- run the configured commands in order
-- capture stdout and stderr into `output/`
-- stop at the first non-zero exit code
+The execution order is fixed:
 
-## Output contract
+1. `video-agent`
+2. `sns-upload-agent`
+3. `analytics-agent`
 
-- `output/agent-1.log`
-- `output/agent-2.log`
-- `output/agent-3.log`
+The orchestrator must pass the previous stage result into the next stage.
 
-Each log contains the exact command output for that agent run.
+## Agent contract
 
-## Rule for new work
+Each stage can be wired in one of two ways:
 
-If a new agent is added later:
+1. Python import
+2. subprocess
 
-1. create a new repository for that agent
-2. add a new contract entry here
-3. add a new external command in `.env`
-4. do not bring the source code into this repo
+Preferred import variables:
+
+- `VIDEO_AGENT_IMPORT`
+- `SNS_AGENT_IMPORT`
+- `ANALYTICS_AGENT_IMPORT`
+
+Fallback command variables:
+
+- `VIDEO_AGENT_CMD`
+- `SNS_AGENT_CMD`
+- `ANALYTICS_AGENT_CMD`
+
+## Input payload
+
+Each agent receives a structured payload that includes:
+
+- `campaign_id`
+- `notes`
+- `contract_version`
+- the previous stage result where applicable
+
+## Output payload
+
+Each agent should return a JSON-compatible dictionary.
+
+The orchestrator normalizes and stores:
+
+- `data/video_result.json`
+- `data/sns_result.json`
+- `data/analytics_result.json`
+- `data/summary.json`
+
+## Failure rule
+
+If an agent returns `ok=false` or exits non-zero, the orchestrator keeps the result payload and marks the summary as `partial_failure`.
 

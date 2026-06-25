@@ -2,31 +2,25 @@
 
 ## Current state
 
-This repository should stay as a thin integration layer.
+The repo is now structured for a Discord-driven campaign pipeline.
 
-## Non-negotiable rule
+## What to touch
 
-- Do not copy the 3 agent codebases into this repo.
-- Keep source in the agent repos.
-- Only maintain the contract and the execution path here.
+- `config/settings.py` for environment variables
+- `agents/` for import-first or subprocess fallback wiring
+- `orchestrator/main.py` for execution flow changes
+- `discord_bot/main.py` for slash commands and Discord output
+- `docker-compose.yml` and `docker/*.Dockerfile` for deployment wiring
 
-## What to update here
+## What not to touch casually
 
-- `env.example` for external command settings
-- `docs/contract.md` when the command contract changes
-- `orchestrator/main.py` when the execution flow changes
-- `scripts/run.ps1` and `scripts/deploy.ps1` when the runner or package layout changes
+- agent implementation repos
+- agent source trees outside this repo
+- contract semantics without updating `docs/contract.md`
 
-## What not to update here
+## Operational notes
 
-- agent business logic
-- agent prompts
-- agent source trees
-
-## Checklist
-
-- [ ] Each agent is still owned by its own repository
-- [ ] The orchestrator only calls external commands
-- [ ] No agent source code was copied into this repo
-- [ ] Logs still go to `output/`
+- Use `ORCHESTRATOR_MODE=direct` for in-process execution.
+- Use `ORCHESTRATOR_MODE=worker` when a separate orchestrator worker should poll `runtime/jobs/`.
+- The bot always writes the final summary to `data/summary.json`.
 

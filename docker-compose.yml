@@ -1,0 +1,28 @@
+services:
+  discord-bot:
+    build:
+      context: .
+      dockerfile: docker/discord-bot.Dockerfile
+    env_file:
+      - .env
+    environment:
+      ORCHESTRATOR_MODE: direct
+      DATA_DIR: /app/data
+      RUNTIME_DIR: /app/runtime
+    volumes:
+      - ./data:/app/data
+      - ./runtime:/app/runtime
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/orchestrator.Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      RUNTIME_DIR: /app/runtime
+    volumes:
+      - ./data:/app/data
+      - ./runtime:/app/runtime
+

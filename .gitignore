@@ -1,6 +1,7 @@
-output/*
-!output/.gitkeep
 .env
 __pycache__/
-*.py[cod]
-
+*.pyc
+runtime/*
+!runtime/.gitkeep
+output/*
+!output/.gitkeep

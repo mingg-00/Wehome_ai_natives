@@ -1,0 +1,9 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/discord-bot.Dockerfile"
+
+[deploy]
+startCommand = "python -m discord_bot.main"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
+
