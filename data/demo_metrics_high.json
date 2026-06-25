@@ -1,0 +1,50 @@
+[
+  {
+    "video_id": "high_001",
+    "property_id": "prop_high_001",
+    "property_name": "강남 감성 숙소",
+    "platform": "Instagram Reels",
+    "caption_style": "benefit_first",
+    "bgm_style": "upbeat_pop",
+    "thumbnail_type": "before_after",
+    "views": 1000,
+    "likes": 520,
+    "comments": 280,
+    "shares": 620,
+    "watch_time_avg": 57,
+    "video_length": 60,
+    "posted_at": "2026-06-01T09:00:00+09:00"
+  },
+  {
+    "video_id": "high_002",
+    "property_id": "prop_high_002",
+    "property_name": "홍대 파티하우스",
+    "platform": "TikTok",
+    "caption_style": "direct_cta",
+    "bgm_style": "trending_audio",
+    "thumbnail_type": "bold_text",
+    "views": 1000,
+    "likes": 480,
+    "comments": 260,
+    "shares": 500,
+    "watch_time_avg": 56,
+    "video_length": 60,
+    "posted_at": "2026-06-02T09:30:00+09:00"
+  },
+  {
+    "video_id": "high_003",
+    "property_id": "prop_high_003",
+    "property_name": "성수 스튜디오",
+    "platform": "YouTube Shorts",
+    "caption_style": "problem_solution",
+    "bgm_style": "upbeat_pop",
+    "thumbnail_type": "property_view",
+    "views": 1000,
+    "likes": 450,
+    "comments": 250,
+    "shares": 450,
+    "watch_time_avg": 54,
+    "video_length": 60,
+    "posted_at": "2026-06-03T10:00:00+09:00"
+  }
+]

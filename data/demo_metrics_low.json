@@ -1,0 +1,50 @@
+[
+  {
+    "video_id": "low_001",
+    "property_id": "prop_low_001",
+    "property_name": "제주 오션뷰",
+    "platform": "Instagram Reels",
+    "caption_style": "story_driven",
+    "bgm_style": "cinematic_light",
+    "thumbnail_type": "location_text",
+    "views": 1000,
+    "likes": 80,
+    "comments": 40,
+    "shares": 20,
+    "watch_time_avg": 18,
+    "video_length": 60,
+    "posted_at": "2026-06-04T11:00:00+09:00"
+  },
+  {
+    "video_id": "low_002",
+    "property_id": "prop_low_002",
+    "property_name": "부산 야경 숙소",
+    "platform": "TikTok",
+    "caption_style": "listicle",
+    "bgm_style": "soft_piano",
+    "thumbnail_type": "agent_face",
+    "views": 1000,
+    "likes": 60,
+    "comments": 30,
+    "shares": 15,
+    "watch_time_avg": 12,
+    "video_length": 60,
+    "posted_at": "2026-06-05T12:00:00+09:00"
+  },
+  {
+    "video_id": "low_003",
+    "property_id": "prop_low_003",
+    "property_name": "한옥 스테이",
+    "platform": "YouTube Shorts",
+    "caption_style": "question_hook",
+    "bgm_style": "lofi_chill",
+    "thumbnail_type": "bold_text",
+    "views": 1000,
+    "likes": 50,
+    "comments": 20,
+    "shares": 10,
+    "watch_time_avg": 10,
+    "video_length": 60,
+    "posted_at": "2026-06-06T13:00:00+09:00"
+  }
+]
