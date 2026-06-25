@@ -58,8 +58,7 @@ def inject(platform: str, post: dict, topic: str = "") -> dict:
         - threads   : post['text'] 말미에 추가
         - x         : post['text'] 말미에 추가 (280자 이내로 truncate)
     """
-    slug = _slugify(topic)
-    url = build(platform, content=slug)
+    url = BASE_URL + "/"
     p = dict(post)  # shallow copy — 원본 보존
 
     if platform == "facebook":
@@ -89,9 +88,18 @@ def inject(platform: str, post: dict, topic: str = "") -> dict:
 
 
 def _slugify(text: str) -> str:
-    """주제 텍스트를 utm_content용 짧은 슬러그로 변환."""
+    """주제 텍스트를 utm_content용 짧은 ASCII 슬러그로 변환."""
     import re
-    slug = text.lower().strip()
+    # 첫 줄만 사용 (개행 이후 콘셉트 설명 등 제외)
+    first_line = text.strip().split("\n")[0]
+    # 대괄호 제거 ([위홈] → 위홈)
+    first_line = re.sub(r"\[.*?\]", "", first_line).strip()
+    slug = first_line.lower()
     slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_-]+", "-", slug)
-    return slug[:40]
+    slug = re.sub(r"[\s_]+", "-", slug).strip("-")
+    # ASCII만 남기기 (한글 등 비ASCII는 제거)
+    ascii_slug = re.sub(r"[^\x00-\x7F]", "", slug).strip("-")
+    if len(ascii_slug) >= 3:
+        return ascii_slug[:30]
+    # ASCII가 너무 짧으면 날짜 코드로 대체
+    return datetime.datetime.now().strftime("%Y%m%d")

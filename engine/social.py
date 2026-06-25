@@ -28,6 +28,7 @@ from . import brand, utm
 from .config import OUTPUT_DIR, settings
 from .llm import chat_json
 from . import schedule as _sched
+from . import rag as _rag
 from . import activity_log as _alog
 
 PLATFORMS = ["instagram", "threads", "x", "pinterest", "facebook"]
@@ -59,7 +60,13 @@ def _system(platforms: list[str]) -> str:
 
 
 def generate_posts(topic: str, platforms: list[str], source: str = "") -> dict:
-    src = f"\nSource/context to base posts on:\n{source}\n" if source else ""
+    knowledge = _rag.retrieve_as_context(topic, top_k=3)
+    src_parts = []
+    if knowledge:
+        src_parts.append(knowledge)
+    if source:
+        src_parts.append(f"Source/context:\n{source}")
+    src = ("\n\n".join(src_parts) + "\n") if src_parts else ""
     data = chat_json(_system(platforms), f'Topic: "{topic}".{src}')
     if data is None:
         data = {p: _offline(p, topic) for p in platforms}
@@ -288,6 +295,10 @@ def publish(due_only: bool = False) -> list[dict]:
                              platform=it["platform"], detail=it.get("topic", "")[:80])
                 if it.get("video_path"):
                     newly_posted_paths.add(it["video_path"])
+                results.append({"id": item_id, "platform": it["platform"], **res})
+            elif result_status == "dry-run":
+                # dry-run은 재시도해도 의미 없으므로 DRAFT로 되돌려 무한 루프 방지
+                it["status"] = "DRAFT"
                 results.append({"id": item_id, "platform": it["platform"], **res})
             elif result_status == "error":
                 it["retry_count"] = it.get("retry_count", 0) + 1

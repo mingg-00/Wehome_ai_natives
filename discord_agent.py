@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -13,6 +14,8 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 from engine import social, governance, schedule as sched, events as evt, multilang
 from engine import trends as trend_engine, property_monitor as prop_mon
 from engine import activity_log as _alog
+from engine import card_news as card_news_gen
+from engine import rag as rag_engine
 
 
 def _friendly_error(error: str) -> str:
@@ -54,6 +57,7 @@ NOTIFY_CHANNEL_ID = int(os.getenv("DISCORD_NOTIFY_CHANNEL", "0") or "0")
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True  # on_reaction_add에서 user 객체 정상 수신에 필요
 
 client = discord.Client(intents=intents)
 
@@ -362,6 +366,7 @@ async def _check_new_properties():
             f"📍 지역: {prop.region_ko}  |  🔗 {prop.room_url}",
             "─────────────────────",
         ]
+        created_ids = []
         for platform in platforms:
             post = social.generate_posts(
                 prop.topic_ko, [platform],
@@ -378,13 +383,17 @@ async def _check_new_properties():
                 governance="PASS",
                 scheduled_at=sched.next_golden_time(platform),
             )
+            created_ids.append(item["id"])
             lines.append(_post_preview(item))
 
         lines.append("\n👍 지금 즉시 게시  |  📅 골든타임 예약")
         msg = "\n".join(lines)
         print(msg)
-        if ch:
-            await ch.send(msg)
+        if ch and created_ids:
+            sent = await ch.send(msg)
+            pending_posts[sent.id] = ({"ids": created_ids, "video_path": None}, _time.time())
+            await sent.add_reaction("👍")
+            await sent.add_reaction("📅")
 
 
 @client.event
@@ -410,6 +419,40 @@ async def on_message(message):
 
     # 자기 자신의 메시지만 무시 (다른 봇/앱의 [POST_REQUEST]는 처리)
     if message.author.id == client.user.id:
+        return
+
+    # !cardnews <주제> 명령어 처리
+    if message.content.startswith("!cardnews"):
+        topic = message.content.replace("!cardnews", "").strip()
+        if not topic:
+            await message.reply("⚠️ 사용법: `!cardnews 에어비앤비 대비 위홈 장점`")
+            return
+        await message.add_reaction("⏳")
+        try:
+            paths = await asyncio.get_event_loop().run_in_executor(
+                None, card_news_gen.generate, topic
+            )
+            files = [discord.File(str(p)) for p in paths]
+            await message.reply(
+                f"🎨 **카드뉴스 생성 완료** — {topic}\n총 {len(paths)}장",
+                files=files
+            )
+            _alog.append("card_news", f"카드뉴스 생성 — {topic}", detail=f"{len(paths)}장")
+        except Exception as e:
+            await message.reply(f"❌ 카드뉴스 생성 실패: {e}")
+        return
+
+    # !addknowledge <이름> \n<내용> — 지식 베이스에 문서 추가
+    if message.content.startswith("!addknowledge"):
+        lines = message.content.split("\n", 1)
+        header = lines[0].replace("!addknowledge", "").strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+        if not header or not body:
+            await message.reply("⚠️ 사용법:\n```\n!addknowledge 문서이름\n내용을 여기에 입력하세요.\n```")
+            return
+        source_name = header.replace(" ", "_") + ".md"
+        n = rag_engine.index_text(body, source_name)
+        await message.reply(f"✅ 지식 베이스에 추가 완료\n파일명: `{source_name}` ({n}개 청크 인덱싱)")
         return
 
     if not message.content.startswith("[POST_REQUEST]"):
@@ -455,17 +498,9 @@ async def on_message(message):
         # "x",  # 쓰기 크레딧 리셋 후 주석 해제 (developer.x.com → Dashboard → Usage 확인)
     ]
 
-    # 영상 첨부 시 캡션을 그대로 사용 (GPT 재생성 불필요)
-    if video_path:
-        posts = {
-            p: {"text": topic, "caption": topic, "link": "https://www.wehome.me",
-                "pin_title": topic[:90], "pin_description": topic, "image_text": ""}
-            for p in platforms
-        }
-        preview_label = "📝 영상 포스팅 초안 (캡션 그대로 사용)\n\n"
-    else:
-        posts = social.generate_posts(topic=topic, platforms=platforms)
-        preview_label = "📝 SNS 초안 생성 완료\n\n"
+    # 영상 유무 관계없이 LLM으로 플랫폼별 캡션 생성
+    posts = social.generate_posts(topic=topic, platforms=platforms)
+    preview_label = "📝 영상 포스팅 초안\n\n" if video_path else "📝 SNS 초안 생성 완료\n\n"
 
     created_ids = []
 
@@ -527,18 +562,22 @@ async def on_message(message):
 
 @client.event
 async def on_reaction_add(reaction, user):
+    try:
+        # 봇 자신의 반응 무시 (user.bot + id 이중 확인)
+        if getattr(user, "bot", False) or user.id == client.user.id:
+            return
 
-    # 봇 자신의 반응 무시 (user.bot + id 이중 확인)
-    if user.bot or user.id == client.user.id:
-        return
+        emoji = str(reaction.emoji)
+        if emoji not in ("👍", "📅"):
+            return
 
-    emoji = str(reaction.emoji)
-    if emoji not in ("👍", "📅"):
-        return
+        message_id = reaction.message.id
 
-    message_id = reaction.message.id
-
-    if message_id not in pending_posts:
+        if message_id not in pending_posts:
+            print(f"[Reaction] 미등록 메시지 {message_id} — 봇 재시작으로 pending_posts 초기화됨")
+            return
+    except Exception as e:
+        print(f"[Reaction] on_reaction_add 오류: {e}")
         return
 
     # 📅: 골든타임 예약 (즉시 게시 안 함, APPROVED만 설정)
